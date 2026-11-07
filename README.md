@@ -1,45 +1,56 @@
-# monorepo
-Công nghệ phần mềm assignment 1
+# BrewLite Monorepo (Công nghệ Phần mềm)
 
+Ứng dụng đặt đồ uống không dùng tiền mặt **BrewLite** với kiến trúc Monorepo gồm:
+- `frontend`: Next.js (App Router, TypeScript, TailwindCSS)
+- `backend`: NestJS (REST API, `class-validator`, JWT Passport, `bcrypt`)
 
-## Sprint 1 – Task 2, 3, 4
+## Các tác vụ đã hoàn thiện (Sprint 2: Task 5, Task 6, Task 7)
 
-| Mã | Việc | File |
-| --- | --- | --- |
-| 2.1 | Seed 8 sản phẩm mẫu (Prisma + PostgreSQL) | `backend/prisma/schema.prisma`, `backend/prisma/migrations/`, `backend/prisma/seed.ts` |
-| 2.2 | `GET /products`, `GET /products/:id` (404 khi không có, 400 khi id không phải số) | `backend/src/products/` |
-| 2.3 | Kiểm thử API với database thật, phản hồi < 500ms | `backend/test/products.e2e-spec.ts` |
-| 3.1 | Service gọi API: timeout 8 giây, phân biệt 404 / lỗi máy chủ / mất kết nối | `frontend/lib/api.ts` (test: `api.test.ts`) |
-| 3.2 | Lưới sản phẩm (hình, tên, giá) | `frontend/app/page.tsx` |
-| 3.3 | Trạng thái loading / empty / lỗi (có nút Thử lại) | `frontend/app/page.tsx` |
-| 4.1 | Trang chi tiết sản phẩm | `frontend/app/products/[id]/page.tsx` |
-| 4.2 | Chọn size S/M/L và topping | `frontend/components/ProductOptions.tsx`, `frontend/lib/options.ts` |
-| 4.3 | Tính giá theo size + topping | `frontend/lib/pricing.ts` (test: `pricing.test.ts`) |
+### Task 5: Giỏ hàng (Cart)
+- **Store giỏ hàng (`frontend/context/CartContext.tsx`)**: Quản lý state giỏ hàng bằng React Context kết hợp lưu trữ bền vững trên `localStorage`. Hỗ trợ `addItem`, `updateQuantity`, `removeItem`, `clearCart`, tự động tính tổng số lượng (`totalItems` hiển thị trên badge) và tổng tiền (`totalAmount`).
+- **Giao diện giỏ hàng (`frontend/components/CartView.tsx`, `frontend/components/Header.tsx`, `frontend/app/cart/page.tsx`)**:
+  - Thêm sản phẩm kèm tùy chọn Size (`S`/`M`/`L`) và Topping (`Trân châu`, `Kem`).
+  - Tăng/giảm số lượng, xóa từng món hoặc xóa toàn bộ giỏ.
+  - Badge số lượng cập nhật theo thời gian thực trên thanh điều hướng.
 
-### Chạy thử
+### Task 6: API tạo đơn hàng (`POST /orders`)
+- **Controller & Service (`backend/src/orders/`)**:
+  - `POST /orders` nhận danh sách món trong giỏ hàng, kiểm tra dữ liệu đầu vào bằng `class-validator` (`CreateOrderDto`, `CreateOrderItemDto`), tự tính `lineTotal` và `total`, lưu đơn ở trạng thái `PENDING` và trả về mã đơn (`orderCode`, ví dụ `#1001`).
+  - `GET /orders/me` trả về danh sách đơn hàng của người dùng hiện tại.
+- **Kiểm thử API**:
+  - Unit test: `backend/src/orders/orders.controller.spec.ts`
+  - E2E test: `backend/test/app.e2e-spec.ts`
 
+### Task 7: Đăng ký / Đăng nhập (JWT)
+- **API xác thực (`backend/src/auth/`)**:
+  - `POST /auth/register`: Validate email/mật khẩu, băm mật khẩu bằng `bcrypt`, lưu người dùng và phát JWT (`accessToken`).
+  - `POST /auth/login`: Xác thực mật khẩu với `bcrypt.compare` và phát JWT (`accessToken`).
+  - `JwtStrategy` & `JwtAuthGuard` bảo vệ route đặt đơn `POST /orders`.
+- **Giao diện Đăng ký / Đăng nhập (`frontend/components/AuthForm.tsx`, `frontend/app/login/page.tsx`, `frontend/app/register/page.tsx`)**:
+  - Form đăng ký và đăng nhập có kiểm tra dữ liệu, hiển thị trạng thái loading/lỗi và lưu JWT vào `AuthContext`.
+
+---
+
+## Hướng dẫn cài đặt và chạy dự án
+
+### 1. Chạy Backend (NestJS - Port 3001)
 ```bash
-# 1. PostgreSQL (tạm dùng Docker; docker-compose đầy đủ thuộc Task 9.3)
-docker run -d --name brewlite-db -e POSTGRES_USER=brewlite -e POSTGRES_PASSWORD=brewlite -e POSTGRES_DB=brewlite -p 5432:5432 postgres:16-alpine
-
-# 2. Backend – http://localhost:3001/products
 cd backend
-cp .env.example .env          # Windows PowerShell: Copy-Item .env.example .env
-npm install                   # tự chạy prisma generate
-npm run db:migrate            # tạo bảng products
-npm run db:seed               # thêm 8 sản phẩm mẫu
+npm install
 npm run start:dev
+```
 
-# 3. Frontend – http://localhost:3000 (mở terminal khác)
+Kiểm thử Backend (Unit test & E2E test):
+```bash
+cd backend
+npm test
+npm run test:e2e
+```
+
+### 2. Chạy Frontend (Next.js - Port 3000)
+```bash
 cd frontend
 npm install
 npm run dev
 ```
-
-### Kiểm thử
-
-```bash
-cd backend  && npm test && npm run lint && npm run build
-cd backend  && npm run test:e2e   # Task 2.3, cần database đã migrate + seed
-cd frontend && npm test && npm run lint && npm run build
-```
+Truy cập ứng dụng tại `http://localhost:3000` (hoặc `http://localhost:3000/cart`, `http://localhost:3000/login`, `http://localhost:3000/register`).

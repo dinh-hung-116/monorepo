@@ -1,13 +1,20 @@
 'use client';
 
-// Task 4.1 + 4.3: trang chi tiết sản phẩm và tính giá theo tùy chọn.
+// Task 4.1 + 4.3 + Task 5: trang chi tiết sản phẩm, tính giá theo tùy chọn và thêm vào giỏ hàng.
 import Image from 'next/image';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { ApiError, getProduct } from '@/lib/api';
 import ProductOptions from '@/components/ProductOptions';
-import { calculatePrice, formatVnd, type Size, type ToppingId } from '@/lib/pricing';
+import { useCart } from '@/context/CartContext';
+import {
+  calculatePrice,
+  formatVnd,
+  TOPPINGS,
+  type Size,
+  type ToppingId,
+} from '@/lib/pricing';
 import type { Product } from '@/lib/types';
 
 type State =
@@ -26,6 +33,8 @@ export default function ProductDetailPage() {
 }
 
 function ProductDetail() {
+  const router = useRouter();
+  const { addItem } = useCart();
   const { id } = useParams<{ id: string }>();
   const productId = Number(id);
   const validId = Number.isInteger(productId) && productId > 0;
@@ -67,6 +76,21 @@ function ProductDetail() {
   const { product } = state;
   const total = calculatePrice(product.price, size, toppings);
 
+  const handleAddToCart = () => {
+    const toppingNames = toppings.map(
+      (idItem) => TOPPINGS.find((t) => t.id === idItem)?.name ?? idItem,
+    );
+    addItem({
+      productId: String(product.id),
+      name: product.name,
+      size,
+      toppings: toppingNames,
+      unitPrice: total,
+      qty: 1,
+    });
+    router.push('/cart');
+  };
+
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10">
       {back}
@@ -97,6 +121,14 @@ function ProductDetail() {
               {formatVnd(total)}
             </span>
           </div>
+
+          <button
+            type="button"
+            onClick={handleAddToCart}
+            className="mt-4 w-full rounded-xl bg-amber-800 px-4 py-3 text-sm font-bold text-white transition hover:bg-amber-900"
+          >
+            + Thêm vào giỏ ({formatVnd(total)})
+          </button>
         </section>
       </div>
     </main>
