@@ -59,7 +59,7 @@ export default function MenuPage() {
 
       {state.kind === 'ready' && state.products.length > 0 && (
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {state.products.map((p) => (
+          {state.products.map((p, index) => (
             <li key={p.id}>
               <Link
                 href={`/products/${p.id}`}
@@ -71,6 +71,7 @@ export default function MenuPage() {
                   width={600}
                   height={400}
                   unoptimized
+                  priority={index === 0}
                   className="aspect-[3/2] w-full bg-amber-100 object-cover"
                 />
                 <div className="p-3">
@@ -90,13 +91,13 @@ export default function MenuPage() {
 /** Khung chờ cùng bố cục với lưới thật để trang không bị nhảy khi tải xong. */
 function MenuSkeleton() {
   return (
-    <ul aria-busy="true" aria-label="Đang tải menu" className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+    <ul aria-busy="true" aria-label="Đang tải menu" className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4" suppressHydrationWarning>
       {Array.from({ length: 8 }, (_, i) => (
-        <li key={i} className="animate-pulse overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800">
-          <div className="aspect-[3/2] bg-zinc-200 dark:bg-zinc-800" />
-          <div className="space-y-2 p-3">
-            <div className="h-4 w-2/3 rounded bg-zinc-200 dark:bg-zinc-800" />
-            <div className="h-4 w-1/3 rounded bg-zinc-200 dark:bg-zinc-800" />
+        <li key={i} className="animate-pulse overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800" suppressHydrationWarning>
+          <div className="aspect-[3/2] bg-zinc-200 dark:bg-zinc-800" suppressHydrationWarning />
+          <div className="space-y-2 p-3" suppressHydrationWarning>
+            <div className="h-4 w-2/3 rounded bg-zinc-200 dark:bg-zinc-800" suppressHydrationWarning />
+            <div className="h-4 w-1/3 rounded bg-zinc-200 dark:bg-zinc-800" suppressHydrationWarning />
           </div>
         </li>
       ))}

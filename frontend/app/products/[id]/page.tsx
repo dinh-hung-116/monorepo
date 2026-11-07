@@ -1,14 +1,16 @@
 'use client';
 
 // Task 4.1 + 4.3: trang chi tiết sản phẩm và tính giá theo tùy chọn.
+// Task 5.3: Nối nút Thêm vào giỏ và cập nhật badge số lượng (Tùng).
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { ApiError, getProduct } from '@/lib/api';
 import ProductOptions from '@/components/ProductOptions';
+import { ApiError, getProduct } from '@/lib/api';
 import { calculatePrice, formatVnd, type Size, type ToppingId } from '@/lib/pricing';
 import type { Product } from '@/lib/types';
+import { useCart } from '@/lib/useCart';
 
 type State =
   | { kind: 'loading' }
@@ -17,7 +19,6 @@ type State =
   | { kind: 'ready'; product: Product };
 
 export default function ProductDetailPage() {
-  // useParams cần nằm trong Suspense khi bật cacheComponents (next.config.ts)
   return (
     <Suspense fallback={<DetailSkeleton />}>
       <ProductDetail />
@@ -32,6 +33,10 @@ function ProductDetail() {
   const [state, setState] = useState<State>(validId ? { kind: 'loading' } : { kind: 'not-found' });
   const [size, setSize] = useState<Size>('S');
   const [toppings, setToppings] = useState<ToppingId[]>([]);
+  const [quantity, setQuantity] = useState(1);
+  const [addedNotice, setAddedNotice] = useState(false);
+
+  const { addItem } = useCart();
 
   useEffect(() => {
     if (!validId) return;
@@ -65,7 +70,21 @@ function ProductDetail() {
   }
 
   const { product } = state;
-  const total = calculatePrice(product.price, size, toppings);
+  const total = calculatePrice(product.price, size, toppings, quantity);
+
+  const handleAddToCart = () => {
+    addItem({
+      productId: product.id,
+      name: product.name,
+      imageUrl: product.imageUrl,
+      basePrice: product.price,
+      size,
+      toppings,
+      quantity,
+    });
+    setAddedNotice(true);
+    setTimeout(() => setAddedNotice(false), 2500);
+  };
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10">
@@ -91,12 +110,50 @@ function ProductDetail() {
 
           <ProductOptions size={size} toppings={toppings} onSizeChange={setSize} onToppingsChange={setToppings} />
 
+          {/* Chọn số lượng */}
+          <div className="mt-6 flex items-center justify-between">
+            <span className="font-semibold">Số lượng</span>
+            <div className="flex items-center rounded-xl border border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+              <button
+                type="button"
+                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                aria-label="Giảm số lượng"
+                className="flex h-10 w-10 items-center justify-center font-bold text-zinc-600 hover:text-black dark:text-zinc-300"
+              >
+                -
+              </button>
+              <span className="w-10 text-center font-semibold">{quantity}</span>
+              <button
+                type="button"
+                onClick={() => setQuantity((q) => q + 1)}
+                aria-label="Tăng số lượng"
+                className="flex h-10 w-10 items-center justify-center font-bold text-zinc-600 hover:text-black dark:text-zinc-300"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
           <div className="mt-6 flex items-center justify-between rounded-xl bg-amber-50 p-4 text-amber-900 dark:bg-amber-950 dark:text-amber-100">
             <span className="font-semibold">Tạm tính</span>
             <span data-testid="total-price" className="text-2xl font-bold">
               {formatVnd(total)}
             </span>
           </div>
+
+          <button
+            type="button"
+            onClick={handleAddToCart}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-800 py-3.5 text-base font-bold text-white shadow-md transition hover:bg-amber-900 active:scale-[0.99]"
+          >
+            Thêm vào giỏ hàng • {formatVnd(total)}
+          </button>
+
+          {addedNotice && (
+            <div role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-center text-sm font-semibold text-emerald-800 border border-emerald-200">
+              ✓ Đã thêm vào giỏ hàng thành công!
+            </div>
+          )}
         </section>
       </div>
     </main>
