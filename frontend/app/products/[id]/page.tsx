@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { ApiError, getProduct } from '@/lib/api';
-import { calculatePrice, formatVnd, SIZES, TOPPINGS, type Size, type ToppingId } from '@/lib/pricing';
+import ProductOptions from '@/components/ProductOptions';
+import { calculatePrice, formatVnd, type Size, type ToppingId } from '@/lib/pricing';
 import type { Product } from '@/lib/types';
 
 type State =
@@ -65,8 +66,6 @@ function ProductDetail() {
 
   const { product } = state;
   const total = calculatePrice(product.price, size, toppings);
-  const toggleTopping = (tid: ToppingId) =>
-    setToppings((cur) => (cur.includes(tid) ? cur.filter((t) => t !== tid) : [...cur, tid]));
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10">
@@ -90,42 +89,7 @@ function ProductDetail() {
             Giá gốc: <span className="font-semibold">{formatVnd(product.price)}</span>
           </p>
 
-          {/* Chọn size/topping – Task 4.2 */}
-          <fieldset className="mt-6">
-            <legend className="mb-2 font-semibold">Size</legend>
-            <div className="flex gap-2">
-              {SIZES.map((s) => (
-                <button
-                  key={s.size}
-                  type="button"
-                  aria-pressed={size === s.size}
-                  onClick={() => setSize(s.size)}
-                  className={`flex-1 rounded-xl border px-3 py-2 font-semibold ${
-                    size === s.size ? 'border-amber-800 bg-amber-800 text-white' : 'border-zinc-300'
-                  }`}
-                >
-                  {s.size}
-                  <span className="block text-xs font-normal">{s.extra ? `+${formatVnd(s.extra)}` : 'Giá gốc'}</span>
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <fieldset className="mt-5">
-            <legend className="mb-2 font-semibold">Topping</legend>
-            {TOPPINGS.map((t) => (
-              <label key={t.id} className="flex cursor-pointer items-center gap-3 py-1.5">
-                <input
-                  type="checkbox"
-                  checked={toppings.includes(t.id)}
-                  onChange={() => toggleTopping(t.id)}
-                  className="h-4 w-4 accent-amber-800"
-                />
-                <span className="flex-1">{t.name}</span>
-                <span className="text-sm text-zinc-500">+{formatVnd(t.price)}</span>
-              </label>
-            ))}
-          </fieldset>
+          <ProductOptions size={size} toppings={toppings} onSizeChange={setSize} onToppingsChange={setToppings} />
 
           <div className="mt-6 flex items-center justify-between rounded-xl bg-amber-50 p-4 text-amber-900 dark:bg-amber-950 dark:text-amber-100">
             <span className="font-semibold">Tạm tính</span>
