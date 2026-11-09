@@ -1,6 +1,6 @@
 'use client';
 
-// Task 4.1 + 4.3 + Task 5: trang chi tiết sản phẩm, tính giá theo tùy chọn và thêm vào giỏ hàng.
+// Task 4.1 + 4.2 + 4.3 + Task 5: trang chi tiết sản phẩm, chọn size/topping/số lượng, tính giá và thêm vào giỏ hàng.
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -41,6 +41,7 @@ function ProductDetail() {
   const [state, setState] = useState<State>(validId ? { kind: 'loading' } : { kind: 'not-found' });
   const [size, setSize] = useState<Size>('S');
   const [toppings, setToppings] = useState<ToppingId[]>([]);
+  const [quantity, setQuantity] = useState(1);
 
   useEffect(() => {
     if (!validId) return;
@@ -74,7 +75,8 @@ function ProductDetail() {
   }
 
   const { product } = state;
-  const total = calculatePrice(product.price, size, toppings);
+  const unitPrice = calculatePrice(product.price, size, toppings, 1);
+  const total = calculatePrice(product.price, size, toppings, quantity);
 
   const handleAddToCart = () => {
     const toppingNames = toppings.map(
@@ -85,8 +87,8 @@ function ProductDetail() {
       name: product.name,
       size,
       toppings: toppingNames,
-      unitPrice: total,
-      qty: 1,
+      unitPrice,
+      qty: quantity,
     });
     router.push('/cart');
   };
@@ -114,6 +116,29 @@ function ProductDetail() {
           </p>
 
           <ProductOptions size={size} toppings={toppings} onSizeChange={setSize} onToppingsChange={setToppings} />
+
+          <div className="mt-6 flex items-center justify-between">
+            <span className="font-semibold">Số lượng</span>
+            <div className="flex items-center rounded-xl border border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+              <button
+                type="button"
+                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                aria-label="Giảm số lượng"
+                className="flex h-10 w-10 items-center justify-center font-bold text-zinc-600 hover:text-black dark:text-zinc-300"
+              >
+                -
+              </button>
+              <span className="w-10 text-center font-semibold">{quantity}</span>
+              <button
+                type="button"
+                onClick={() => setQuantity((q) => q + 1)}
+                aria-label="Tăng số lượng"
+                className="flex h-10 w-10 items-center justify-center font-bold text-zinc-600 hover:text-black dark:text-zinc-300"
+              >
+                +
+              </button>
+            </div>
+          </div>
 
           <div className="mt-6 flex items-center justify-between rounded-xl bg-amber-50 p-4 text-amber-900 dark:bg-amber-950 dark:text-amber-100">
             <span className="font-semibold">Tạm tính</span>

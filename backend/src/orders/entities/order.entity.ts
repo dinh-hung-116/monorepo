@@ -27,6 +27,10 @@ export interface Order {
   userId: string;
   status: OrderStatus;
   total: number;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  address?: string | null;
+  note?: string | null;
   items: OrderItem[];
   createdAt: string;
 }

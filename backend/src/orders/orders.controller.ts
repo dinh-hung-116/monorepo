@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -34,5 +35,10 @@ export class OrdersController {
   @Get('me')
   async getMyOrders(@Req() req: AuthenticatedRequest): Promise<Order[]> {
     return this.ordersService.findByUser(req.user.userId);
+  }
+
+  @Get(':code')
+  async getOrderByCode(@Param('code') code: string): Promise<Order> {
+    return this.ordersService.findByCode(code);
   }
 }

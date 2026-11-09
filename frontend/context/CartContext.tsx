@@ -58,19 +58,25 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
+    let savedItems: CartItem[] = [];
     try {
       const raw = window.localStorage.getItem(CART_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          setItems(parsed);
+          savedItems = parsed;
         }
       }
     } catch {
       // Ignore storage read errors
-    } finally {
-      setIsHydrated(true);
     }
+
+    Promise.resolve().then(() => {
+      if (savedItems.length > 0) {
+        setItems(savedItems);
+      }
+      setIsHydrated(true);
+    });
   }, []);
 
   useEffect(() => {

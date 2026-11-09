@@ -6,6 +6,8 @@ export interface AuthUser {
   id: string;
   email: string;
   name?: string;
+  phone?: string | null;
+  role?: string;
   loyaltyPoints?: number;
 }
 
@@ -66,25 +68,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (parsed?.accessToken && parsed?.user) {
           savedToken = parsed.accessToken;
           savedUser = parsed.user;
-          setAccessToken(savedToken);
-          setUser(savedUser);
         }
       }
     } catch {
       // Ignore storage errors
-    } finally {
-      setIsHydrated(true);
     }
 
+    Promise.resolve().then(() => {
+      if (savedToken && savedUser) {
+        setAccessToken(savedToken);
+        setUser(savedUser);
+      }
+      setIsHydrated(true);
+    });
+
     if (savedToken) {
+      const tokenToVerify = savedToken;
       fetch(`${API_BASE_URL}/auth/me`, {
-        headers: { Authorization: `Bearer ${savedToken}` },
+        headers: { Authorization: `Bearer ${tokenToVerify}` },
       })
         .then(async (res) => {
           if (res.ok) {
             const dbUser = (await res.json()) as AuthUser;
             setUser(dbUser);
-            persistAuthSession(savedToken, dbUser);
+            persistAuthSession(tokenToVerify, dbUser);
           } else if (res.status === 401) {
             setAccessToken(null);
             setUser(null);

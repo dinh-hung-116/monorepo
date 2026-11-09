@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
-import type {
-  order_items as OrderItemRow,
-  orders as OrderRow,
-} from '@prisma/client';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -14,7 +14,69 @@ import {
   OrderStatus,
 } from './entities/order.entity.js';
 
-type OrderRowWithItems = OrderRow & { items: OrderItemRow[] };
+export interface OrderItemRow {
+  id?: number;
+  order_id?: number;
+  product_id: string;
+  product_name: string;
+  size: string;
+  toppings: unknown;
+  price: number | { toString(): string };
+  quantity: number;
+  subtotal: number | { toString(): string };
+}
+
+export interface OrderRowWithItems {
+  id: number;
+  order_code: string;
+  user_id: number | null;
+  status: string;
+  total_price: number | { toString(): string };
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  address?: string | null;
+  note?: string | null;
+  created_at: Date | string;
+  updated_at?: Date | string;
+  items: OrderItemRow[];
+}
+
+interface OrdersDelegate {
+  count(): Promise<number>;
+  create(args: {
+    data: {
+      order_code: string;
+      user_id: number | null;
+      status: string;
+      total_price: number;
+      customer_name: string | null;
+      customer_phone: string | null;
+      address: string | null;
+      note: string | null;
+      items: {
+        create: Array<{
+          product_id: string;
+          product_name: string;
+          size: string;
+          toppings: string[];
+          price: number;
+          quantity: number;
+          subtotal: number;
+        }>;
+      };
+    };
+    include: { items: boolean };
+  }): Promise<OrderRowWithItems>;
+  findMany(args: {
+    where: { user_id: number };
+    include: { items: boolean };
+    orderBy: { id: 'asc' | 'desc' };
+  }): Promise<OrderRowWithItems[]>;
+  findUnique(args: {
+    where: { order_code: string };
+    include: { items: boolean };
+  }): Promise<OrderRowWithItems | null>;
+}
 
 interface LocalOrdersDb {
   orderSeq: number;
@@ -24,6 +86,12 @@ interface LocalOrdersDb {
 const LOCAL_ORDERS_PATH = resolve(process.cwd(), '.data', 'orders-db.json');
 
 function isDatabaseUnavailableError(err: unknown): boolean {
+  if (
+    err instanceof BadRequestException ||
+    err instanceof NotFoundException
+  ) {
+    return false;
+  }
   const name = (err as { name?: string })?.name ?? '';
   const code = (err as { code?: string })?.code ?? '';
   const message = (err as { message?: string })?.message ?? '';
@@ -47,6 +115,16 @@ export class OrdersService {
 
   constructor(private readonly prisma: PrismaService) {
     this.loadFallbackFromDisk();
+  }
+
+  private get ordersRepo(): OrdersDelegate {
+    const repo = (this.prisma as unknown as { orders?: OrdersDelegate })?.orders;
+    if (!repo) {
+      const err = new Error("Can't reach database server");
+      (err as { code?: string }).code = 'P1001';
+      throw err;
+    }
+    return repo;
   }
 
   private isTestEnv(): boolean {
@@ -87,6 +165,10 @@ export class OrdersService {
   }
 
   async createOrder(userId: string, dto: CreateOrderDto): Promise<Order> {
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('Giỏ hàng phải có ít nhất 1 sản phẩm');
+    }
+
     const calculatedItems = dto.items.map((item) => {
       const lineTotal = item.unitPrice * item.qty;
       return {
@@ -104,16 +186,20 @@ export class OrdersService {
     const parsedUserId = /^\d+$/.test(String(userId)) ? Number(userId) : null;
 
     try {
-      const count = await this.prisma.orders.count();
+      const count = await this.ordersRepo.count();
       const seq = 1001 + count;
       const orderCode = `#${seq}`;
 
-      const created = await this.prisma.orders.create({
+      const created = await this.ordersRepo.create({
         data: {
           order_code: orderCode,
           user_id: parsedUserId,
           status: 'PENDING',
           total_price: total,
+          customer_name: dto.customerName ?? null,
+          customer_phone: dto.customerPhone ?? null,
+          address: dto.address ?? null,
+          note: dto.note ?? null,
           items: {
             create: calculatedItems.map((item) => ({
               product_id: item.productId,
@@ -160,6 +246,10 @@ export class OrdersService {
         userId,
         status: 'PENDING',
         total,
+        customerName: dto.customerName ?? null,
+        customerPhone: dto.customerPhone ?? null,
+        address: dto.address ?? null,
+        note: dto.note ?? null,
         items,
         createdAt: new Date().toISOString(),
       };
@@ -175,12 +265,14 @@ export class OrdersService {
 
     try {
       if (parsedUserId !== null) {
-        const rows = await this.prisma.orders.findMany({
+        const rows = await this.ordersRepo.findMany({
           where: { user_id: parsedUserId },
           include: { items: true },
           orderBy: { id: 'desc' },
         });
-        return rows.map((row) => this.rowToOrder(row, userId));
+        return rows.map((row: OrderRowWithItems) =>
+          this.rowToOrder(row, userId),
+        );
       }
     } catch (err) {
       if (!isDatabaseUnavailableError(err)) {
@@ -194,6 +286,35 @@ export class OrdersService {
     );
   }
 
+  async findByCode(orderCode: string): Promise<Order> {
+    const normalizedCode = orderCode.startsWith('#')
+      ? orderCode
+      : `#${orderCode}`;
+    try {
+      const row = await this.ordersRepo.findUnique({
+        where: { order_code: normalizedCode },
+        include: { items: true },
+      });
+      if (!row) {
+        throw new NotFoundException(`Không tìm thấy đơn hàng ${orderCode}`);
+      }
+      return this.rowToOrder(row, String(row.user_id ?? ''));
+    } catch (err) {
+      if (!isDatabaseUnavailableError(err)) {
+        throw err;
+      }
+    }
+
+    this.loadFallbackFromDisk();
+    const found = Array.from(this.fallbackOrders.values()).find(
+      (o) => o.orderCode === normalizedCode || o.orderCode === orderCode,
+    );
+    if (!found) {
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderCode}`);
+    }
+    return found;
+  }
+
   private rowToOrder(row: OrderRowWithItems, fallbackUserId: string): Order {
     const orderId = `order-${1000 + row.id}`;
     return {
@@ -202,7 +323,11 @@ export class OrdersService {
       userId: row.user_id !== null ? String(row.user_id) : fallbackUserId,
       status: row.status as OrderStatus,
       total: Number(row.total_price),
-      items: (row.items ?? []).map((item, idx) => ({
+      customerName: row.customer_name ?? null,
+      customerPhone: row.customer_phone ?? null,
+      address: row.address ?? null,
+      note: row.note ?? null,
+      items: (row.items ?? []).map((item: OrderItemRow, idx: number) => ({
         id: `${orderId}-item-${item.id ?? idx + 1}`,
         orderId,
         productId: item.product_id,

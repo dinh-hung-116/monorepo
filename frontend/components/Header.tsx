@@ -10,7 +10,7 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-amber-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
+      <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <Link
           href="/"
           className="flex items-center gap-2 text-xl font-bold tracking-tight text-amber-900"
@@ -22,6 +22,13 @@ export default function Header() {
         </Link>
 
         <nav className="flex items-center gap-3 text-sm font-medium">
+          <Link
+            href="/"
+            className="px-2 py-1 text-zinc-700 transition hover:text-amber-800"
+          >
+            Menu
+          </Link>
+
           <Link
             href="/cart"
             className="relative inline-flex items-center gap-2 rounded-full bg-amber-100 px-3.5 py-1.5 text-amber-950 transition hover:bg-amber-200"
