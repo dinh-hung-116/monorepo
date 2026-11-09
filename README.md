@@ -2,7 +2,7 @@
 
 Ứng dụng đặt đồ uống không dùng tiền mặt **BrewLite** với kiến trúc Monorepo gồm:
 - `frontend`: Next.js (App Router, TypeScript, TailwindCSS)
-- `backend`: NestJS (REST API, `class-validator`, JWT Passport, `bcrypt`)
+- `backend`: NestJS (REST API, Prisma + PostgreSQL, `class-validator`, JWT Passport, `bcrypt`)
 
 ## Các tác vụ đã hoàn thiện (Sprint 2: Task 5, Task 6, Task 7)
 
@@ -15,19 +15,22 @@
 
 ### Task 6: API tạo đơn hàng (`POST /orders`)
 - **Controller & Service (`backend/src/orders/`)**:
-  - `POST /orders` nhận danh sách món trong giỏ hàng, kiểm tra dữ liệu đầu vào bằng `class-validator` (`CreateOrderDto`, `CreateOrderItemDto`), tự tính `lineTotal` và `total`, lưu đơn ở trạng thái `PENDING` và trả về mã đơn (`orderCode`, ví dụ `#1001`).
-  - `GET /orders/me` trả về danh sách đơn hàng của người dùng hiện tại.
+  - `POST /orders` nhận danh sách món trong giỏ hàng, kiểm tra dữ liệu đầu vào bằng `class-validator` (`CreateOrderDto`, `CreateOrderItemDto`), tự tính `lineTotal` và `total`, lưu đơn ở trạng thái `PENDING` vào database (`orders`, `order_items`) qua Prisma và trả về mã đơn (`orderCode`, ví dụ `#1001`).
+  - `GET /orders/me` trả về danh sách đơn hàng của người dùng hiện tại từ database.
 - **Kiểm thử API**:
   - Unit test: `backend/src/orders/orders.controller.spec.ts`
   - E2E test: `backend/test/app.e2e-spec.ts`
 
-### Task 7: Đăng ký / Đăng nhập (JWT)
+### Task 7: Đăng ký / Đăng nhập (JWT + Database Persistence)
+- **Database Schema (`backend/prisma/schema.prisma`)**:
+  - Bổ sung bảng `users`, `orders`, `order_items` kèm migration `20261107091755_create_users_and_orders`.
 - **API xác thực (`backend/src/auth/`)**:
-  - `POST /auth/register`: Validate email/mật khẩu, băm mật khẩu bằng `bcrypt`, lưu người dùng và phát JWT (`accessToken`).
-  - `POST /auth/login`: Xác thực mật khẩu với `bcrypt.compare` và phát JWT (`accessToken`).
+  - `POST /auth/register`: Validate email/mật khẩu, băm mật khẩu bằng `bcrypt`, lưu tài khoản vào bảng `users` trong database qua `PrismaService` và phát JWT (`accessToken`).
+  - `POST /auth/login`: Tra cứu tài khoản trong database, xác thực mật khẩu với `bcrypt.compare` và phát JWT (`accessToken`).
+  - `GET /auth/me`: Lấy thông tin tài khoản người dùng hiện tại từ database.
   - `JwtStrategy` & `JwtAuthGuard` bảo vệ route đặt đơn `POST /orders`.
 - **Giao diện Đăng ký / Đăng nhập (`frontend/components/AuthForm.tsx`, `frontend/app/login/page.tsx`, `frontend/app/register/page.tsx`)**:
-  - Form đăng ký và đăng nhập có kiểm tra dữ liệu, hiển thị trạng thái loading/lỗi và lưu JWT vào `AuthContext`.
+  - Form đăng ký và đăng nhập có kiểm tra dữ liệu, hiển thị trạng thái loading/lỗi, lưu JWT vào `AuthContext` và đồng bộ trạng thái tài khoản từ database qua `GET /auth/me`.
 
 ---
 
@@ -37,6 +40,8 @@
 ```bash
 cd backend
 npm install
+npm run db:migrate
+npm run db:seed
 npm run start:dev
 ```
 

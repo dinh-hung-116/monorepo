@@ -1,6 +1,8 @@
+import { Prisma } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { Request } from 'express';
 import type { AuthenticatedUser } from '../auth/jwt.strategy.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { OrdersController } from './orders.controller.js';
 import { OrdersService } from './orders.service.js';
 
@@ -8,23 +10,84 @@ describe('OrdersController', () => {
   let ordersController: OrdersController;
 
   beforeEach(async () => {
+    let orderIdSeq = 1;
+    const prismaMock = {
+      orders: {
+        count: vi.fn(async () => orderIdSeq - 1),
+        create: vi.fn(
+          async ({
+            data,
+          }: {
+            data: {
+              order_code: string;
+              user_id: number | null;
+              status: string;
+              total_price: number;
+              items: {
+                create: Array<{
+                  product_id: string;
+                  product_name: string;
+                  size: string;
+                  toppings: string[];
+                  price: number;
+                  quantity: number;
+                  subtotal: number;
+                }>;
+              };
+            };
+          }) => {
+            const id = orderIdSeq++;
+            const now = new Date();
+            return {
+              id,
+              order_code: data.order_code,
+              user_id: data.user_id,
+              status: data.status,
+              total_price: new Prisma.Decimal(data.total_price),
+              customer_name: null,
+              customer_phone: null,
+              address: null,
+              note: null,
+              created_at: now,
+              updated_at: now,
+              items: data.items.create.map((it, idx) => ({
+                id: idx + 1,
+                order_id: id,
+                product_id: it.product_id,
+                product_name: it.product_name,
+                size: it.size,
+                toppings: it.toppings,
+                price: new Prisma.Decimal(it.price),
+                quantity: it.quantity,
+                subtotal: new Prisma.Decimal(it.subtotal),
+              })),
+            };
+          },
+        ),
+        findMany: vi.fn(async () => []),
+      },
+    };
+
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [OrdersController],
-      providers: [OrdersService],
+      providers: [
+        OrdersService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
     }).compile();
 
     ordersController = moduleRef.get<OrdersController>(OrdersController);
   });
 
-  it('should create an order in PENDING status and return orderCode and calculated total', () => {
+  it('should create an order in PENDING status and return orderCode and calculated total', async () => {
     const mockReq = {
       user: {
-        userId: 'user-1',
+        userId: '1',
         email: 'customer@brewlite.vn',
       },
     } as unknown as Request & { user: AuthenticatedUser };
 
-    const order = ordersController.createOrder(mockReq, {
+    const order = await ordersController.createOrder(mockReq, {
       items: [
         {
           productId: 'cappuccino',
@@ -48,7 +111,7 @@ describe('OrdersController', () => {
     expect(order.id).toBe('order-1001');
     expect(order.orderCode).toBe('#1001');
     expect(order.status).toBe('PENDING');
-    expect(order.userId).toBe('user-1');
+    expect(order.userId).toBe('1');
     expect(order.total).toBe(123000);
     expect(order.items).toHaveLength(2);
     expect(order.items[0].lineTotal).toBe(45000);

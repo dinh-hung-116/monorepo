@@ -23,16 +23,16 @@ export class OrdersController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  createOrder(
+  async createOrder(
     @Req() req: AuthenticatedRequest,
     @Body() createOrderDto: CreateOrderDto,
-  ): Order {
+  ): Promise<Order> {
     return this.ordersService.createOrder(req.user.userId, createOrderDto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  getMyOrders(@Req() req: AuthenticatedRequest): Order[] {
+  async getMyOrders(@Req() req: AuthenticatedRequest): Promise<Order[]> {
     return this.ordersService.findByUser(req.user.userId);
   }
 }

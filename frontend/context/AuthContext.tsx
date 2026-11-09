@@ -33,45 +33,74 @@ export const API_BASE_URL =
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function persistAuthSession(accessToken: string | null, user: AuthUser | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (accessToken && user) {
+      window.localStorage.setItem(
+        AUTH_STORAGE_KEY,
+        JSON.stringify({ accessToken, user })
+      );
+    } else {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      return parsed?.user ?? null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
 
-  const [accessToken, setAccessToken] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      return parsed?.accessToken ?? null;
-    } catch {
-      return null;
-    }
-  });
-
+  // Khôi phục phiên đăng nhập từ localStorage và đồng bộ thông tin tài khoản từ database (GET /auth/me)
   useEffect(() => {
+    let savedToken: string | null = null;
+    let savedUser: AuthUser | null = null;
+
     try {
-      if (accessToken && user) {
-        window.localStorage.setItem(
-          AUTH_STORAGE_KEY,
-          JSON.stringify({ accessToken, user })
-        );
-      } else {
-        window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.accessToken && parsed?.user) {
+          savedToken = parsed.accessToken;
+          savedUser = parsed.user;
+          setAccessToken(savedToken);
+          setUser(savedUser);
+        }
       }
     } catch {
       // Ignore storage errors
+    } finally {
+      setIsHydrated(true);
     }
-  }, [accessToken, user]);
+
+    if (savedToken) {
+      fetch(`${API_BASE_URL}/auth/me`, {
+        headers: { Authorization: `Bearer ${savedToken}` },
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const dbUser = (await res.json()) as AuthUser;
+            setUser(dbUser);
+            persistAuthSession(savedToken, dbUser);
+          } else if (res.status === 401) {
+            setAccessToken(null);
+            setUser(null);
+            persistAuthSession(null, null);
+          }
+        })
+        .catch(() => {
+          // Giữ phiên local nếu máy chủ tạm thời chưa phản hồi
+        });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    persistAuthSession(accessToken, user);
+  }, [accessToken, user, isHydrated]);
 
   const login = async (
     email: string,
@@ -93,6 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setAccessToken(data.accessToken);
     setUser(data.user);
+    persistAuthSession(data.accessToken, data.user);
     return data;
   };
 
@@ -117,12 +147,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setAccessToken(data.accessToken);
     setUser(data.user);
+    persistAuthSession(data.accessToken, data.user);
     return data;
   };
 
   const logout = () => {
     setAccessToken(null);
     setUser(null);
+    persistAuthSession(null, null);
   };
 
   return (
