@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -51,6 +52,15 @@ interface LocalDbData {
 
 const LOCAL_DB_PATH = resolve(process.cwd(), '.data', 'users-db.json');
 
+function isMissingTableError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code ?? '';
+  const message = (err as { message?: string })?.message ?? '';
+  return (
+    code === 'P2021' ||
+    message.includes('does not exist in the current database')
+  );
+}
+
 function isDatabaseUnavailableError(err: unknown): boolean {
   if (
     err instanceof ConflictException ||
@@ -64,11 +74,13 @@ function isDatabaseUnavailableError(err: unknown): boolean {
   return (
     name.includes('PrismaClientInitializationError') ||
     name.includes('PrismaClientRustPanicError') ||
+    code === 'P1000' ||
     code === 'P1001' ||
     code === 'P1002' ||
     code === 'P1003' ||
     code === 'P2021' ||
     message.includes("Can't reach database server") ||
+    message.includes('Authentication failed against database server') ||
     message.includes('Environment variable not found: DATABASE_URL') ||
     message.includes('does not exist in the current database')
   );
@@ -76,6 +88,7 @@ function isDatabaseUnavailableError(err: unknown): boolean {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly fallbackUsers: Map<string, User> = new Map();
   private fallbackCounter = 1;
 
@@ -98,6 +111,17 @@ export class AuthService {
 
   private isTestEnv(): boolean {
     return Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
+  }
+
+  private async ensureSchemaIfNeeded(err: unknown): Promise<boolean> {
+    if (!isMissingTableError(err)) return false;
+    const maybeEnsure = (
+      this.prisma as unknown as { ensureSchema?: () => Promise<boolean> }
+    )?.ensureSchema;
+    if (typeof maybeEnsure === 'function') {
+      return maybeEnsure.call(this.prisma);
+    }
+    return false;
   }
 
   private loadFallbackFromDisk(): void {
@@ -143,6 +167,32 @@ export class AuthService {
     return bcrypt.compare(password, hash);
   }
 
+  private async registerInDb(
+    normalizedEmail: string,
+    displayName: string,
+    phone: string | null,
+    passwordHash: string,
+  ): Promise<AuthResult> {
+    const existing = await this.usersRepo.findUnique({
+      where: { email: normalizedEmail },
+    });
+    if (existing) {
+      throw new ConflictException('Email đã được đăng ký');
+    }
+
+    const created = await this.usersRepo.create({
+      data: {
+        email: normalizedEmail,
+        name: displayName,
+        phone,
+        password_hash: passwordHash,
+        loyalty_points: 0,
+      },
+    });
+
+    return this.buildAuthResult(this.rowToUser(created));
+  }
+
   async register(dto: RegisterDto): Promise<AuthResult> {
     const normalizedEmail = dto.email.trim().toLowerCase();
     const displayName = dto.name?.trim() || normalizedEmail.split('@')[0];
@@ -150,27 +200,37 @@ export class AuthService {
     const passwordHash = await this.hashPassword(dto.password);
 
     try {
-      const existing = await this.usersRepo.findUnique({
-        where: { email: normalizedEmail },
-      });
-      if (existing) {
-        throw new ConflictException('Email đã được đăng ký');
+      return await this.registerInDb(
+        normalizedEmail,
+        displayName,
+        phone,
+        passwordHash,
+      );
+    } catch (err) {
+      let finalErr: unknown = err;
+      if (await this.ensureSchemaIfNeeded(err)) {
+        try {
+          return await this.registerInDb(
+            normalizedEmail,
+            displayName,
+            phone,
+            passwordHash,
+          );
+        } catch (retryErr) {
+          finalErr = retryErr;
+        }
       }
 
-      const created = await this.usersRepo.create({
-        data: {
-          email: normalizedEmail,
-          name: displayName,
-          phone,
-          password_hash: passwordHash,
-          loyalty_points: 0,
-        },
-      });
+      if (!isDatabaseUnavailableError(finalErr)) {
+        throw finalErr;
+      }
 
-      return this.buildAuthResult(this.rowToUser(created));
-    } catch (err) {
-      if (!isDatabaseUnavailableError(err)) {
-        throw err;
+      if (!this.isTestEnv()) {
+        const msg =
+          (finalErr as { message?: string })?.message ?? String(finalErr);
+        this.logger.warn(
+          `Lưu tài khoản vào PostgreSQL thất bại (${msg.split('\n')[0]}), đang lưu tạm vào .data/users-db.json.`,
+        );
       }
 
       this.loadFallbackFromDisk();
@@ -203,9 +263,20 @@ export class AuthService {
     const normalizedEmail = dto.email.trim().toLowerCase();
 
     try {
-      const row = await this.usersRepo.findUnique({
-        where: { email: normalizedEmail },
-      });
+      let row: UserRow | null;
+      try {
+        row = await this.usersRepo.findUnique({
+          where: { email: normalizedEmail },
+        });
+      } catch (err) {
+        if (await this.ensureSchemaIfNeeded(err)) {
+          row = await this.usersRepo.findUnique({
+            where: { email: normalizedEmail },
+          });
+        } else {
+          throw err;
+        }
+      }
 
       if (!row) {
         throw new UnauthorizedException('Email hoặc mật khẩu không chính xác');

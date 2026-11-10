@@ -4,6 +4,13 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL, useAuth } from "@/context/AuthContext";
 import { DrinkSize, useCart } from "@/context/CartContext";
+import {
+  calculatePrice,
+  formatVnd,
+  SIZES,
+  TOPPINGS,
+  type ToppingId,
+} from "@/lib/pricing";
 
 interface SampleDrink {
   productId: string;
@@ -12,26 +19,11 @@ interface SampleDrink {
 }
 
 const SAMPLE_DRINKS: SampleDrink[] = [
-  { productId: "ca-phe-sua", name: "Cà phê sữa", basePrice: 35000 },
-  { productId: "americano", name: "Americano", basePrice: 40000 },
-  { productId: "cappuccino", name: "Cappuccino", basePrice: 45000 },
-  { productId: "tra-dao", name: "Trà đào", basePrice: 39000 },
+  { productId: "1", name: "Cà phê đen", basePrice: 20000 },
+  { productId: "2", name: "Cà phê sữa", basePrice: 25000 },
+  { productId: "4", name: "Latte", basePrice: 35000 },
+  { productId: "6", name: "Trà đào", basePrice: 30000 },
 ];
-
-const SIZE_EXTRA: Record<DrinkSize, number> = {
-  S: 0,
-  M: 5000,
-  L: 10000,
-};
-
-const AVAILABLE_TOPPINGS = [
-  { name: "Trân châu", price: 5000 },
-  { name: "Kem", price: 5000 },
-];
-
-export function formatVnd(amount: number): string {
-  return `${amount.toLocaleString("vi-VN")}đ`;
-}
 
 interface CreatedOrderInfo {
   id: string;
@@ -53,37 +45,42 @@ export default function CartView() {
   const { accessToken, isAuthenticated } = useAuth();
 
   const [selectedDrink, setSelectedDrink] = useState<SampleDrink>(
-    SAMPLE_DRINKS[2]
+    SAMPLE_DRINKS[1]
   );
   const [selectedSize, setSelectedSize] = useState<DrinkSize>("M");
-  const [selectedToppings, setSelectedToppings] = useState<string[]>([]);
+  const [selectedToppings, setSelectedToppings] = useState<ToppingId[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [createdOrder, setCreatedOrder] = useState<CreatedOrderInfo | null>(
     null
   );
 
-  const toggleTopping = (toppingName: string) => {
+  const toggleTopping = (toppingId: ToppingId) => {
     setSelectedToppings((prev) =>
-      prev.includes(toppingName)
-        ? prev.filter((t) => t !== toppingName)
-        : [...prev, toppingName]
+      prev.includes(toppingId)
+        ? prev.filter((t) => t !== toppingId)
+        : [...prev, toppingId]
     );
   };
 
-  const currentUnitPrice =
-    selectedDrink.basePrice +
-    SIZE_EXTRA[selectedSize] +
-    selectedToppings.length * 5000;
+  const currentUnitPrice = calculatePrice(
+    selectedDrink.basePrice,
+    selectedSize,
+    selectedToppings,
+    1
+  );
 
   const handleQuickAdd = () => {
     setCreatedOrder(null);
     setOrderError(null);
+    const toppingNames = selectedToppings.map(
+      (id) => TOPPINGS.find((t) => t.id === id)?.name ?? id
+    );
     addItem({
       productId: selectedDrink.productId,
       name: selectedDrink.name,
       size: selectedSize,
-      toppings: selectedToppings,
+      toppings: toppingNames,
       unitPrice: currentUnitPrice,
       qty: 1,
     });
@@ -188,7 +185,7 @@ export default function CartView() {
               Size
             </label>
             <div className="mt-1.5 flex gap-2">
-              {(["S", "M", "L"] as DrinkSize[]).map((size) => {
+              {SIZES.map(({ size, extra }) => {
                 const active = selectedSize === size;
                 return (
                   <button
@@ -201,10 +198,7 @@ export default function CartView() {
                         : "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
                     }`}
                   >
-                    Size {size}{" "}
-                    {SIZE_EXTRA[size] > 0
-                      ? `(+${SIZE_EXTRA[size] / 1000}k)`
-                      : ""}
+                    Size {size} {extra > 0 ? `(+${extra / 1000}k)` : ""}
                   </button>
                 );
               })}
@@ -213,16 +207,16 @@ export default function CartView() {
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-600">
-              Topping (+5.000đ/loại)
+              Topping
             </label>
             <div className="mt-1.5 flex flex-wrap gap-2">
-              {AVAILABLE_TOPPINGS.map((topping) => {
-                const active = selectedToppings.includes(topping.name);
+              {TOPPINGS.map((topping) => {
+                const active = selectedToppings.includes(topping.id);
                 return (
                   <button
-                    key={topping.name}
+                    key={topping.id}
                     type="button"
-                    onClick={() => toggleTopping(topping.name)}
+                    onClick={() => toggleTopping(topping.id)}
                     className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
                       active
                         ? "border-amber-700 bg-amber-100 text-amber-950"
@@ -230,7 +224,7 @@ export default function CartView() {
                     }`}
                   >
                     {active ? "✓ " : "+ "}
-                    {topping.name}
+                    {topping.name} (+{formatVnd(topping.price)})
                   </button>
                 );
               })}

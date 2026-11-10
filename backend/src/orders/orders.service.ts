@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -85,6 +86,15 @@ interface LocalOrdersDb {
 
 const LOCAL_ORDERS_PATH = resolve(process.cwd(), '.data', 'orders-db.json');
 
+function isMissingTableError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code ?? '';
+  const message = (err as { message?: string })?.message ?? '';
+  return (
+    code === 'P2021' ||
+    message.includes('does not exist in the current database')
+  );
+}
+
 function isDatabaseUnavailableError(err: unknown): boolean {
   if (
     err instanceof BadRequestException ||
@@ -98,11 +108,13 @@ function isDatabaseUnavailableError(err: unknown): boolean {
   return (
     name.includes('PrismaClientInitializationError') ||
     name.includes('PrismaClientRustPanicError') ||
+    code === 'P1000' ||
     code === 'P1001' ||
     code === 'P1002' ||
     code === 'P1003' ||
     code === 'P2021' ||
     message.includes("Can't reach database server") ||
+    message.includes('Authentication failed against database server') ||
     message.includes('Environment variable not found: DATABASE_URL') ||
     message.includes('does not exist in the current database')
   );
@@ -110,6 +122,7 @@ function isDatabaseUnavailableError(err: unknown): boolean {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
   private readonly fallbackOrders: Map<string, Order> = new Map();
   private orderSequence = 1001;
 
@@ -129,6 +142,17 @@ export class OrdersService {
 
   private isTestEnv(): boolean {
     return Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
+  }
+
+  private async ensureSchemaIfNeeded(err: unknown): Promise<boolean> {
+    if (!isMissingTableError(err)) return false;
+    const maybeEnsure = (
+      this.prisma as unknown as { ensureSchema?: () => Promise<boolean> }
+    )?.ensureSchema;
+    if (typeof maybeEnsure === 'function') {
+      return maybeEnsure.call(this.prisma);
+    }
+    return false;
   }
 
   private loadFallbackFromDisk(): void {
@@ -164,6 +188,55 @@ export class OrdersService {
     }
   }
 
+  private async createOrderInDb(
+    userId: string,
+    parsedUserId: number | null,
+    total: number,
+    dto: CreateOrderDto,
+    calculatedItems: Array<{
+      productId: string;
+      productName: string;
+      size: DrinkSize;
+      toppings: string[];
+      qty: number;
+      unitPrice: number;
+      lineTotal: number;
+    }>,
+  ): Promise<Order> {
+    const count = await this.ordersRepo.count();
+    const seq = 1001 + count;
+    const orderCode = `#${seq}`;
+
+    const created = await this.ordersRepo.create({
+      data: {
+        order_code: orderCode,
+        user_id: parsedUserId,
+        status: 'PENDING',
+        total_price: total,
+        customer_name: dto.customerName ?? null,
+        customer_phone: dto.customerPhone ?? null,
+        address: dto.address ?? null,
+        note: dto.note ?? null,
+        items: {
+          create: calculatedItems.map((item) => ({
+            product_id: item.productId,
+            product_name: item.productName,
+            size: item.size,
+            toppings: item.toppings,
+            price: item.unitPrice,
+            quantity: item.qty,
+            subtotal: item.lineTotal,
+          })),
+        },
+      },
+      include: {
+        items: true,
+      },
+    });
+
+    return this.rowToOrder(created, userId);
+  }
+
   async createOrder(userId: string, dto: CreateOrderDto): Promise<Order> {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Giỏ hàng phải có ít nhất 1 sản phẩm');
@@ -186,41 +259,39 @@ export class OrdersService {
     const parsedUserId = /^\d+$/.test(String(userId)) ? Number(userId) : null;
 
     try {
-      const count = await this.ordersRepo.count();
-      const seq = 1001 + count;
-      const orderCode = `#${seq}`;
-
-      const created = await this.ordersRepo.create({
-        data: {
-          order_code: orderCode,
-          user_id: parsedUserId,
-          status: 'PENDING',
-          total_price: total,
-          customer_name: dto.customerName ?? null,
-          customer_phone: dto.customerPhone ?? null,
-          address: dto.address ?? null,
-          note: dto.note ?? null,
-          items: {
-            create: calculatedItems.map((item) => ({
-              product_id: item.productId,
-              product_name: item.productName,
-              size: item.size,
-              toppings: item.toppings,
-              price: item.unitPrice,
-              quantity: item.qty,
-              subtotal: item.lineTotal,
-            })),
-          },
-        },
-        include: {
-          items: true,
-        },
-      });
-
-      return this.rowToOrder(created, userId);
+      return await this.createOrderInDb(
+        userId,
+        parsedUserId,
+        total,
+        dto,
+        calculatedItems,
+      );
     } catch (err) {
-      if (!isDatabaseUnavailableError(err)) {
-        throw err;
+      let finalErr: unknown = err;
+      if (await this.ensureSchemaIfNeeded(err)) {
+        try {
+          return await this.createOrderInDb(
+            userId,
+            parsedUserId,
+            total,
+            dto,
+            calculatedItems,
+          );
+        } catch (retryErr) {
+          finalErr = retryErr;
+        }
+      }
+
+      if (!isDatabaseUnavailableError(finalErr)) {
+        throw finalErr;
+      }
+
+      if (!this.isTestEnv()) {
+        const msg =
+          (finalErr as { message?: string })?.message ?? String(finalErr);
+        this.logger.warn(
+          `Lưu đơn hàng vào PostgreSQL thất bại (${msg.split('\n')[0]}), đang lưu tạm vào .data/orders-db.json.`,
+        );
       }
 
       this.loadFallbackFromDisk();

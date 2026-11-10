@@ -1,0 +1,17 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Dependencies & virtualenvs
+node_modules/
+.venv/
+
+# OS & Editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json

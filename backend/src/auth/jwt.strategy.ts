@@ -1,8 +1,12 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { loadEnvFiles } from '../prisma/prisma.service.js';
 
-export const JWT_SECRET = process.env.JWT_SECRET || 'brewlite_super_secret_jwt_key_2026';
+loadEnvFiles();
+
+export const JWT_SECRET =
+  process.env.JWT_SECRET || 'brewlite_super_secret_jwt_key_2026';
 
 export interface JwtPayload {
   sub: string;
