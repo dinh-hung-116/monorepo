@@ -256,19 +256,41 @@ export class OrdersService {
       const createdItems: OrderItemRow[] = [];
 
       for (const item of calculatedItems) {
-        const itemRows = await (this.prisma as any).$queryRawUnsafe(
-          `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "toppings", "price", "quantity", "subtotal")
-           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
-           RETURNING id, order_id, product_id, product_name, size, toppings, price, quantity, subtotal`,
-          insertedOrder.id,
-          item.productId,
-          item.productName,
-          item.size,
-          JSON.stringify(item.toppings ?? []),
-          item.unitPrice,
-          item.qty,
-          item.lineTotal,
-        );
+        const parsedProdId = /^\d+$/.test(String(item.productId))
+          ? Number(item.productId)
+          : null;
+
+        // Thử insert với integer trước, nếu fail thì text
+        let itemRows: any[];
+        try {
+          itemRows = await (this.prisma as any).$queryRawUnsafe(
+            `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "toppings", "price", "quantity", "subtotal")
+             VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
+             RETURNING id, order_id, product_id, product_name, size, toppings, price, quantity, subtotal`,
+            insertedOrder.id,
+            parsedProdId !== null ? parsedProdId : item.productId,
+            item.productName,
+            item.size,
+            JSON.stringify(item.toppings ?? []),
+            item.unitPrice,
+            item.qty,
+            item.lineTotal,
+          );
+        } catch {
+          itemRows = await (this.prisma as any).$queryRawUnsafe(
+            `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "toppings", "price", "quantity", "subtotal")
+             VALUES ($1, $2::text, $3, $4, $5::jsonb, $6, $7, $8)
+             RETURNING id, order_id, product_id, product_name, size, toppings, price, quantity, subtotal`,
+            insertedOrder.id,
+            String(item.productId),
+            item.productName,
+            item.size,
+            JSON.stringify(item.toppings ?? []),
+            item.unitPrice,
+            item.qty,
+            item.lineTotal,
+          );
+        }
         createdItems.push(itemRows[0]);
       }
 
