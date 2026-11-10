@@ -326,6 +326,21 @@ export class PrismaService
         END $$;
       `);
 
+      // Tự động bổ sung các cột mới nếu bảng users / orders / order_items đã tồn tại từ bản cũ
+      await this.$executeRawUnsafe(`
+        ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "phone" VARCHAR(20);
+        ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "loyalty_points" INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "customer_name" VARCHAR(150);
+        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "customer_phone" VARCHAR(20);
+        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "address" VARCHAR(255);
+        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "note" TEXT;
+        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+        ALTER TABLE "order_items" ADD COLUMN IF NOT EXISTS "toppings" JSONB;
+      `);
+
       this.schemaEnsured = true;
 
       const rows = await this.$queryRawUnsafe<Array<{ cnt: bigint | number }>>(
@@ -346,6 +361,7 @@ export class PrismaService
       }
 
       await this.syncLocalFallbackUsersToDb();
+      await this.syncLocalFallbackOrdersToDb();
 
       this.logger.log(
         'Đã kết nối PostgreSQL và đồng bộ đầy đủ các bảng (products, users, orders, order_items).',
@@ -420,6 +436,91 @@ export class PrismaService
       }
     } catch {
       // Bỏ qua lỗi đọc file dự phòng
+    }
+  }
+
+  /**
+   * Đồng bộ các đơn hàng từng lưu tạm ở .data/orders-db.json vào bảng orders và order_items của PostgreSQL.
+   */
+  private async syncLocalFallbackOrdersToDb(): Promise<void> {
+    const localOrdersPath = resolve(process.cwd(), '.data', 'orders-db.json');
+    if (!existsSync(localOrdersPath)) return;
+    try {
+      const raw = readFileSync(localOrdersPath, 'utf8');
+      const parsed = JSON.parse(raw) as { orders?: Array<{
+        orderCode: string;
+        userId?: string;
+        status?: string;
+        total: number;
+        customerName?: string | null;
+        customerPhone?: string | null;
+        address?: string | null;
+        note?: string | null;
+        createdAt?: string;
+        items?: Array<{
+          productId: string;
+          productName: string;
+          size: string;
+          toppings?: string[];
+          unitPrice: number;
+          qty: number;
+          lineTotal: number;
+        }>;
+      }> };
+      if (!Array.isArray(parsed?.orders)) return;
+
+      for (const o of parsed.orders) {
+        if (!o?.orderCode) continue;
+        const parsedUserId = /^\d+$/.test(String(o.userId))
+          ? Number(o.userId)
+          : null;
+        let validUserId: number | null = null;
+        if (parsedUserId !== null) {
+          const userRows = await this.$queryRawUnsafe<Array<{ id: number }>>(
+            'SELECT id FROM "users" WHERE id = $1',
+            parsedUserId,
+          ).catch(() => []);
+          if (userRows.length > 0) {
+            validUserId = parsedUserId;
+          }
+        }
+
+        const insertedOrders = await this.$queryRawUnsafe<Array<{ id: number }>>(
+          `INSERT INTO "orders" ("order_code", "user_id", "status", "total_price", "customer_name", "customer_phone", "address", "note", "created_at")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT ("order_code") DO NOTHING
+           RETURNING id`,
+          o.orderCode,
+          validUserId,
+          o.status || 'PENDING',
+          o.total,
+          o.customerName ?? null,
+          o.customerPhone ?? null,
+          o.address ?? null,
+          o.note ?? null,
+          new Date(o.createdAt || Date.now()),
+        ).catch(() => []);
+
+        if (insertedOrders.length > 0 && Array.isArray(o.items)) {
+          const orderId = insertedOrders[0].id;
+          for (const it of o.items) {
+            await this.$executeRawUnsafe(
+              `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "toppings", "price", "quantity", "subtotal")
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+              orderId,
+              it.productId,
+              it.productName,
+              it.size,
+              JSON.stringify(it.toppings ?? []),
+              it.unitPrice,
+              it.qty,
+              it.lineTotal,
+            ).catch(() => {});
+          }
+        }
+      }
+    } catch {
+      // Bỏ qua lỗi đồng bộ đơn cũ
     }
   }
 
