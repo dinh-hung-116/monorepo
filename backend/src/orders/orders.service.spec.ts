@@ -14,6 +14,10 @@ describe('OrdersService (Task 6.2)', () => {
     createMock = vi.fn();
 
     const prismaMock = {
+      // users mock để createOrderInDb kiểm tra foreign key
+      users: {
+        findUnique: vi.fn().mockResolvedValue({ id: 1 }),
+      },
       orders: {
         count: countMock,
         create: createMock,

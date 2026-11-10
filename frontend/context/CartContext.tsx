@@ -6,8 +6,10 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import { useAuth } from "./AuthContext";
 
 export type DrinkSize = "S" | "M" | "L";
 
@@ -40,7 +42,60 @@ interface CartContextValue {
   clearCart: () => void;
 }
 
-const CART_STORAGE_KEY = "brewlite_cart_v1";
+const CART_STORAGE_PREFIX = "brewlite_cart_user_";
+const CART_GUEST_STORAGE_KEY = "brewlite_cart_guest";
+const LEGACY_STORAGE_KEY = "brewlite_cart_v1";
+
+function getCartStorageKey(userId: string | null): string {
+  return userId ? `${CART_STORAGE_PREFIX}${userId}` : CART_GUEST_STORAGE_KEY;
+}
+
+function readStoredCart(userId: string | null): CartItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const key = getCartStorageKey(userId);
+    let raw = window.localStorage.getItem(key);
+    // Hỗ trợ chuyển đổi dữ liệu từ khóa cũ brewlite_cart_v1
+    if (!raw && !userId) {
+      raw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (raw) {
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+    }
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch {
+    // Ignore storage read errors
+  }
+  return [];
+}
+
+function writeStoredCart(userId: string | null, items: CartItem[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    const key = getCartStorageKey(userId);
+    if (items.length === 0) {
+      window.localStorage.removeItem(key);
+    } else {
+      window.localStorage.setItem(key, JSON.stringify(items));
+    }
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function useCurrentUserId(): string | null {
+  try {
+    const auth = useAuth();
+    return auth.user?.id ? String(auth.user.id) : null;
+  } catch {
+    return null;
+  }
+}
 
 const CartContext = createContext<CartContextValue | undefined>(undefined);
 
@@ -54,39 +109,40 @@ export function buildCartItemId(
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
+  const currentUserId = useCurrentUserId();
   const [items, setItems] = useState<CartItem[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const activeUserIdRef = useRef<string | null | undefined>(undefined);
 
+  // Đồng bộ giỏ hàng theo từng tài khoản người dùng
   useEffect(() => {
-    let savedItems: CartItem[] = [];
-    try {
-      const raw = window.localStorage.getItem(CART_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          savedItems = parsed;
-        }
-      }
-    } catch {
-      // Ignore storage read errors
+    const prevUserId = activeUserIdRef.current;
+
+    // Khi khách thêm món vào giỏ rồi mới đăng nhập: gộp giỏ của khách vào tài khoản
+    if (prevUserId === null && currentUserId) {
+      const guestItems = readStoredCart(null);
+      const userItems = readStoredCart(currentUserId);
+      const combined = [...userItems, ...guestItems];
+      window.localStorage.removeItem(CART_GUEST_STORAGE_KEY);
+      writeStoredCart(currentUserId, combined);
+      setItems(combined);
+    } else {
+      // Đọc giỏ hàng tương ứng với tài khoản hiện tại (hoặc giỏ trống khi đăng xuất)
+      const saved = readStoredCart(currentUserId);
+      setItems(saved);
     }
 
-    Promise.resolve().then(() => {
-      if (savedItems.length > 0) {
-        setItems(savedItems);
-      }
-      setIsHydrated(true);
-    });
-  }, []);
+    activeUserIdRef.current = currentUserId;
+    setIsHydrated(true);
+  }, [currentUserId]);
 
+  // Tự động lưu giỏ hàng vào localStorage theo userId
   useEffect(() => {
     if (!isHydrated) return;
-    try {
-      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
-    } catch {
-      // Ignore storage quota errors
+    if (activeUserIdRef.current === currentUserId) {
+      writeStoredCart(currentUserId, items);
     }
-  }, [items, isHydrated]);
+  }, [items, isHydrated, currentUserId]);
 
   const addItem = useCallback((input: AddCartItemInput) => {
     const toppings = input.toppings ? [...input.toppings].sort() : [];
@@ -138,7 +194,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const clearCart = useCallback(() => {
     setItems([]);
-  }, []);
+    writeStoredCart(currentUserId, []);
+  }, [currentUserId]);
 
   const totalItems = useMemo(
     () => items.reduce((sum, item) => sum + item.qty, 0),

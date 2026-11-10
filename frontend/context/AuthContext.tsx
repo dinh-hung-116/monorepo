@@ -162,6 +162,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccessToken(null);
     setUser(null);
     persistAuthSession(null, null);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("brewlite_cart_guest");
+    }
   };
 
   return (

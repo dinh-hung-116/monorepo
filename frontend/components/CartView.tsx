@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL, useAuth } from "@/context/AuthContext";
 import { DrinkSize, useCart } from "@/context/CartContext";
@@ -42,7 +42,7 @@ export default function CartView() {
     removeItem,
     clearCart,
   } = useCart();
-  const { accessToken, isAuthenticated } = useAuth();
+  const { accessToken, isAuthenticated, user } = useAuth();
 
   const [selectedDrink, setSelectedDrink] = useState<SampleDrink>(
     SAMPLE_DRINKS[1]
@@ -54,6 +54,12 @@ export default function CartView() {
   const [createdOrder, setCreatedOrder] = useState<CreatedOrderInfo | null>(
     null
   );
+
+  // Xóa kết quả đơn hàng cũ và thông báo lỗi khi tài khoản thay đổi hoặc đăng xuất
+  useEffect(() => {
+    setCreatedOrder(null);
+    setOrderError(null);
+  }, [user?.id, isAuthenticated]);
 
   const toggleTopping = (toppingId: ToppingId) => {
     setSelectedToppings((prev) =>

@@ -12,8 +12,14 @@ describe('OrdersController', () => {
   beforeEach(async () => {
     let orderIdSeq = 1;
     const prismaMock = {
+      // users mock để createOrderInDb kiểm tra foreign key
+      users: {
+        findUnique: vi.fn(async () => ({ id: 1 })),
+      },
       orders: {
         count: vi.fn(async () => orderIdSeq - 1),
+        // findUnique để kiểm tra trùng order_code
+        findUnique: vi.fn(async () => null),
         create: vi.fn(
           async ({
             data,
