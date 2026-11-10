@@ -108,18 +108,23 @@ function isDatabaseUnavailableError(err: unknown): boolean {
   return (
     name.includes('PrismaClientInitializationError') ||
     name.includes('PrismaClientRustPanicError') ||
+    // Lỗi giao thức nhị phân Prisma↔PostgreSQL (08P01, JSONB encoding, v.v.)
+    name.includes('PrismaClientUnknownRequestError') ||
     code === 'P1000' ||
     code === 'P1001' ||
     code === 'P1002' ||
     code === 'P1003' ||
     code === 'P2021' ||
-    // Lỗi foreign key (user_id không tồn tại trong bảng users) → dùng fallback
+    // Lỗi foreign key (user_id không tồn tại trong bảng users)
     code === 'P2003' ||
+    // Lỗi trùng khóa unique (order_code)
+    code === 'P2002' ||
     message.includes("Can't reach database server") ||
     message.includes('Authentication failed against database server') ||
     message.includes('Environment variable not found: DATABASE_URL') ||
     message.includes('does not exist in the current database') ||
-    message.includes('Foreign key constraint failed')
+    message.includes('Foreign key constraint failed') ||
+    message.includes('insufficient data left in message')
   );
 }
 
@@ -206,27 +211,6 @@ export class OrdersService {
       lineTotal: number;
     }>,
   ): Promise<Order> {
-    // Kiểm tra tài khoản có tồn tại trong bảng users để tránh lỗi foreign key (P2003)
-    // Nếu không tìm thấy user trong DB → gắn user_id = null (đơn vô danh)
-    let validUserId: number | null = null;
-    if (parsedUserId !== null) {
-      try {
-        const userRepo = (
-          this.prisma as unknown as {
-            users?: { findUnique: (args: { where: { id: number } }) => Promise<{ id: number } | null> };
-          }
-        )?.users;
-        if (userRepo) {
-          const userInDb = await userRepo.findUnique({ where: { id: parsedUserId } });
-          if (userInDb) {
-            validUserId = parsedUserId;
-          }
-        }
-      } catch {
-        validUserId = null;
-      }
-    }
-
     const count = await this.ordersRepo.count();
     const seq = 1001 + count;
     const orderCode = `#${seq}`;
@@ -234,7 +218,7 @@ export class OrdersService {
     const created = await this.ordersRepo.create({
       data: {
         order_code: orderCode,
-        user_id: validUserId,
+        user_id: parsedUserId,
         status: 'PENDING',
         total_price: total,
         customer_name: dto.customerName ?? null,
@@ -246,7 +230,8 @@ export class OrdersService {
             product_id: item.productId,
             product_name: item.productName,
             size: item.size,
-            toppings: item.toppings,
+            // Chuyển tường minh sang mảng JSON thuần để tránh lỗi 08P01 (JSONB encoding)
+            toppings: Array.isArray(item.toppings) ? [...item.toppings] : [],
             price: item.unitPrice,
             quantity: item.qty,
             subtotal: item.lineTotal,
