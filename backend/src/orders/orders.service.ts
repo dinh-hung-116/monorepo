@@ -236,6 +236,51 @@ export class OrdersService {
     const seq = Math.max(1001 + lastOrders.length, 1000 + lastId + 1);
     const orderCode = `#${seq}`;
 
+    // 3. Ưu tiên dùng raw SQL khi chạy thực tế (có $queryRawUnsafe) để tránh lỗi nhị phân JSONB 08P01 của Prisma
+    if (typeof (this.prisma as any)?.$queryRawUnsafe === 'function') {
+      const orderRows = await (this.prisma as any).$queryRawUnsafe(
+        `INSERT INTO "orders" ("order_code", "user_id", "status", "total_price", "customer_name", "customer_phone", "address", "note")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, order_code, user_id, status, total_price, customer_name, customer_phone, address, note, created_at, updated_at`,
+        orderCode,
+        validUserId,
+        'PENDING',
+        total,
+        dto.customerName ?? null,
+        dto.customerPhone ?? null,
+        dto.address ?? null,
+        dto.note ?? null,
+      );
+
+      const insertedOrder = orderRows[0];
+      const createdItems: OrderItemRow[] = [];
+
+      for (const item of calculatedItems) {
+        const itemRows = await (this.prisma as any).$queryRawUnsafe(
+          `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "toppings", "price", "quantity", "subtotal")
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
+           RETURNING id, order_id, product_id, product_name, size, toppings, price, quantity, subtotal`,
+          insertedOrder.id,
+          item.productId,
+          item.productName,
+          item.size,
+          JSON.stringify(item.toppings ?? []),
+          item.unitPrice,
+          item.qty,
+          item.lineTotal,
+        );
+        createdItems.push(itemRows[0]);
+      }
+
+      const rowWithItems: OrderRowWithItems = {
+        ...insertedOrder,
+        items: createdItems,
+      };
+
+      return this.rowToOrder(rowWithItems, userId);
+    }
+
+    // Fallback cho môi trường unit test (sử dụng Prisma delegate mock)
     const created = await this.ordersRepo.create({
       data: {
         order_code: orderCode,
