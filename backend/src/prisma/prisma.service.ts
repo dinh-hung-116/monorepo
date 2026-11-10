@@ -327,19 +327,17 @@ export class PrismaService
       `);
 
       // Tự động bổ sung các cột mới nếu bảng users / orders / order_items đã tồn tại từ bản cũ
-      await this.$executeRawUnsafe(`
-        ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "phone" VARCHAR(20);
-        ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "loyalty_points" INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+      await this.$executeRawUnsafe(`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "phone" VARCHAR(20)`);
+      await this.$executeRawUnsafe(`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "loyalty_points" INTEGER NOT NULL DEFAULT 0`);
+      await this.$executeRawUnsafe(`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP`);
 
-        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "customer_name" VARCHAR(150);
-        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "customer_phone" VARCHAR(20);
-        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "address" VARCHAR(255);
-        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "note" TEXT;
-        ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+      await this.$executeRawUnsafe(`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "customer_name" VARCHAR(150)`);
+      await this.$executeRawUnsafe(`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "customer_phone" VARCHAR(20)`);
+      await this.$executeRawUnsafe(`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "address" VARCHAR(255)`);
+      await this.$executeRawUnsafe(`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "note" TEXT`);
+      await this.$executeRawUnsafe(`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP`);
 
-        ALTER TABLE "order_items" ADD COLUMN IF NOT EXISTS "toppings" JSONB;
-      `);
+      await this.$executeRawUnsafe(`ALTER TABLE "order_items" ADD COLUMN IF NOT EXISTS "toppings" JSONB`);
 
       this.schemaEnsured = true;
 
@@ -369,8 +367,9 @@ export class PrismaService
       return true;
     } catch (err) {
       const msg = (err as { message?: string })?.message ?? String(err);
-      this.logger.warn(
-        `Không thể khởi tạo bảng trên PostgreSQL (${msg.split('\n')[0]}). Hệ thống tạm thời dùng dữ liệu dự phòng tại .data/. Hãy kiểm tra DATABASE_URL trong backend/.env.`,
+      this.logger.error(
+        `Không thể khởi tạo bảng trên PostgreSQL: ${msg}`,
+        (err as Error)?.stack,
       );
       return false;
     }
