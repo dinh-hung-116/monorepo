@@ -211,14 +211,35 @@ export class OrdersService {
       lineTotal: number;
     }>,
   ): Promise<Order> {
-    const count = await this.ordersRepo.count();
-    const seq = 1001 + count;
+    // 1. Kiểm tra tài khoản có thực sự tồn tại trong DB không để tránh lỗi foreign key (P2003)
+    let validUserId: number | null = null;
+    if (parsedUserId !== null) {
+      try {
+        const userExists = await (this.prisma as unknown as { users?: { findUnique: (args: { where: { id: number } }) => Promise<unknown> } })?.users?.findUnique({
+          where: { id: parsedUserId },
+        });
+        if (userExists) {
+          validUserId = parsedUserId;
+        }
+      } catch {
+        validUserId = null;
+      }
+    }
+
+    // 2. Tìm ID lớn nhất để tạo orderCode duy nhất, tránh trùng #1001, #1002, #1003, #1004 đã có trong DB
+    const lastOrders = await this.ordersRepo.findMany({
+      where: {} as { user_id: number },
+      include: { items: false },
+      orderBy: { id: 'desc' },
+    }).catch(() => []);
+    const lastId = lastOrders.length > 0 ? lastOrders[0].id : 0;
+    const seq = Math.max(1001 + lastOrders.length, 1000 + lastId + 1);
     const orderCode = `#${seq}`;
 
     const created = await this.ordersRepo.create({
       data: {
         order_code: orderCode,
-        user_id: parsedUserId,
+        user_id: validUserId,
         status: 'PENDING',
         total_price: total,
         customer_name: dto.customerName ?? null,
@@ -230,8 +251,7 @@ export class OrdersService {
             product_id: item.productId,
             product_name: item.productName,
             size: item.size,
-            // Chuyển tường minh sang mảng JSON thuần để tránh lỗi 08P01 (JSONB encoding)
-            toppings: Array.isArray(item.toppings) ? [...item.toppings] : [],
+            toppings: item.toppings,
             price: item.unitPrice,
             quantity: item.qty,
             subtotal: item.lineTotal,
