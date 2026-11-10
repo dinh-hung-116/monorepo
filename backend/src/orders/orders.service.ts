@@ -318,8 +318,9 @@ export class OrdersService {
       if (!this.isTestEnv()) {
         const msg =
           (finalErr as { message?: string })?.message ?? String(finalErr);
-        this.logger.warn(
-          `Lưu đơn hàng vào PostgreSQL thất bại (${msg.split('\n')[0]}), đang lưu tạm vào .data/orders-db.json.`,
+        this.logger.error(
+          `Lưu đơn hàng vào PostgreSQL thất bại chi tiết: ${msg}`,
+          (finalErr as Error)?.stack,
         );
       }
 
