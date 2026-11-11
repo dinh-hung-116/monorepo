@@ -66,6 +66,28 @@ npm run dev
 ```
 Truy cập ứng dụng tại `http://localhost:3000` (hoặc `/cart`, `/login`, `/register`).
 
+### 4. Chạy cả 3 phần bằng Docker Compose
+
+Stack gồm 3 service độc lập: `db` (PostgreSQL), `backend` (NestJS), `frontend` (Next.js).
+
+```bash
+docker compose up -d --build     # lần đầu / khi code thay đổi
+docker compose ps                # xem trạng thái
+docker compose logs -f backend   # xem log
+```
+
+| Service | Địa chỉ |
+| --- | --- |
+| Frontend | `http://localhost:3000` |
+| Backend | `http://localhost:3001` |
+| PostgreSQL | `localhost:5434` (user/pass/db: `brewlite` / `brewlite` / `brewlite_db`) |
+
+- Backend tự chạy `prisma migrate deploy` khi container khởi động.
+- Dữ liệu DB nằm trong volume riêng `brewlite_stack_db_data` (không dùng chung với container nào khác).
+- Seed thêm dữ liệu mẫu: `docker compose run --rm backend npm run db:seed`.
+- Đổi port/cấu hình DB: sửa biến `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, hoặc đặt chúng trong file `.env` ở thư mục gốc.
+- Dừng: `docker compose down` (giữ dữ liệu) hoặc `docker compose down -v` (xoá luôn volume).
+
 ---
 
 ## Kiểm thử & Build
