@@ -1,4 +1,4 @@
-﻿import {Controller, Get, Param, Post, Req, Res} from '@nestjs/common';
+﻿import {Controller, Get, Headers, Param, Post, Req, Res} from '@nestjs/common';
 import type {Request, Response} from 'express';
 import {PaymentsService} from './payments.service.js';
 
@@ -10,16 +10,23 @@ export class PaymentsController {
     async createPayment(
         @Param('orderId') orderId: string,
         @Req() req: Request,
+        @Headers('idempotency-key') idempotencyKeyHeader?: string,
     ){
-        /*
-        Check for idemptency key in the request headers. If it exists, use it to check if a payment has already been created for this order. If it does, return the existing payment URL. If not, create a new payment and return the new payment URL.
-        */
         const ipAddress = this.getIpAddress(req);
-        const paymentUrl =
+
+        // Nếu client không gửi Idempotency-Key thì tự sinh từ orderId + IP.
+        // Điều này đảm bảo cùng đơn hàng từ cùng IP không tạo 2 payment record,
+        // đồng thời vẫn hỗ trợ client gửi key tường minh.
+        const idempotencyKey =
+            idempotencyKeyHeader?.trim() ||
+            `auto:${orderId}:${ipAddress}`;
+
+        const { paymentUrl } =
              await this.paymentsService.createPayment(
                 orderId,
                 ipAddress,
-                `${req.protocol}://${req.get('host')}/api/payment/return`
+                `${req.protocol}://${req.get('host')}/api/payment/return`,
+                idempotencyKey,
             );
 
         return { paymentUrl };
