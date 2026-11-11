@@ -24,7 +24,7 @@ export default function Header() {
         <nav className="flex items-center gap-3 text-sm font-medium">
           <Link
             href="/"
-            className="px-2 py-1 text-zinc-700 transition hover:text-amber-800"
+            className="relative inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-amber-950 transition hover:bg-amber-200"
           >
             Menu
           </Link>
@@ -40,6 +40,13 @@ export default function Header() {
             >
               {totalItems}
             </span>
+          </Link>
+
+          <Link
+              href="/orders"
+              className="relative inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-amber-950 transition hover:bg-amber-200"
+          >
+            <span>Lịch sử đơn hàng</span>
           </Link>
 
           {isAuthenticated && user ? (

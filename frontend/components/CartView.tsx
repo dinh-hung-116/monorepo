@@ -92,7 +92,7 @@ export default function CartView() {
     });
   };
 
-  const handleCreateOrder = async () => {
+  const handlePayment = async () => {
     if (items.length === 0) return;
     if (!isAuthenticated || !accessToken) {
       setOrderError("Vui lòng đăng nhập trước khi đặt đơn hàng.");
@@ -122,29 +122,39 @@ export default function CartView() {
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const order = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const msg = Array.isArray(data?.message)
-          ? data.message.join(", ")
-          : data?.message || "Không thể tạo đơn hàng";
+        const msg = Array.isArray(order?.message)
+            ? order.message.join(", ")
+            : order?.message || "Không thể tạo đơn hàng";
         throw new Error(msg);
       }
 
-      setCreatedOrder({
-        id: data.id,
-        orderCode: data.orderCode,
-        status: data.status,
-        total: data.total,
-      });
-      clearCart();
-    } catch (err) {
-      setOrderError(
-        err instanceof Error ? err.message : "Lỗi kết nối tới máy chủ"
+      console.log(order.orderCode);
+      const paymentRedirect = await fetch(
+          `${API_BASE_URL}/api/payment/create/${encodeURIComponent(order.orderCode)}`,
+          {
+            method: "POST",
+          }
       );
+
+      if (!paymentRedirect.ok) {
+        throw new Error(
+            "Không thể tạo thanh toán VNPAY"
+        );
+      }
+
+      window.location.href = (await paymentRedirect.json()).paymentUrl;
+      setSubmitting(true);
+      setOrderError(null);
+      setCreatedOrder(null);
+
+    } catch (err) {
+      err instanceof Error ? err.message : "Lỗi kết nối tới máy chủ"
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
   return (
     <div className="mx-auto grid max-w-4xl gap-6 px-4 py-6 md:grid-cols-12">
@@ -283,7 +293,7 @@ export default function CartView() {
             <div className="mt-1 text-sm">
               Mã đơn: <strong>{createdOrder.orderCode}</strong> — Trạng thái:{" "}
               <span className="rounded bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-900">
-                {createdOrder.status}
+                { createdOrder.status}
               </span>
             </div>
             <div className="mt-1 text-xs text-emerald-700">
@@ -402,12 +412,10 @@ export default function CartView() {
           <button
             type="button"
             disabled={items.length === 0 || submitting}
-            onClick={handleCreateOrder}
+            onClick={handlePayment}
             className="mt-4 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {submitting
-              ? "Đang tạo đơn hàng..."
-              : `Đặt đơn hàng (${formatVnd(totalAmount)})`}
+            {submitting ? "Đang chuyển tới cổng thanh toán" : "Thanh toán"}
           </button>
         </div>
       </section>
