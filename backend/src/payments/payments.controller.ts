@@ -40,13 +40,14 @@ export class PaymentsController {
         });
         try {
 
-            const order =
+            const { order, paid } =
                 await this.paymentsService.processPaymentReturn(params);
 
             return res.redirect(
                 this.buildFrontendUrl(
                     req,
                     `/order-confirmation?orderCode=${encodeURIComponent(order.order_code)}`
+                    + (paid ? '' : '&status=failed')
                 )
             );
         } catch (e) {

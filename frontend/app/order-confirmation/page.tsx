@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { ApiError, getOrderByCode } from '@/lib/api';
 import { formatVnd } from '@/lib/pricing';
 import type { ApiOrder, ApiOrderStatus } from '@/lib/types';
+import { useCart } from '@/context/CartContext';
 
 const statusLabels: Record<ApiOrderStatus, string> = {
   PENDING: 'Chờ thanh toán',
@@ -44,6 +45,10 @@ function OrderConfirmation() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(orderCode));
 
+  // Xóa giỏ hàng khi thanh toán thành công; ref để chỉ chạy 1 lần mỗi đơn.
+  const { clearCart } = useCart();
+  const clearedRef = useRef(false);
+
   useEffect(() => {
     if (!orderCode) return;
 
@@ -51,7 +56,16 @@ function OrderConfirmation() {
     setLoading(true);
     getOrderByCode(orderCode)
       .then((data) => {
-        if (!cancelled) setOrder(data);
+        if (!cancelled) {
+          setOrder(data);
+          // Chỉ xóa giỏ hàng khi thanh toán thực sự thành công (PAID).
+          // Nếu trạng thái là PAYMENT_FAILED thì giỏ hàng được giữ nguyên
+          // để người dùng có thể thử lại.
+          if (data.status === 'PAID' && !clearedRef.current) {
+            clearedRef.current = true;
+            clearCart();
+          }
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -68,6 +82,7 @@ function OrderConfirmation() {
     return () => {
       cancelled = true;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderCode]);
 
   if (!orderCode) {
@@ -79,21 +94,21 @@ function OrderConfirmation() {
           </h1>
           <p className="mt-2 text-sm text-zinc-600">
             {hasError
-              ? 'Giao dịch VNPay không thành công hoặc chữ ký không hợp lệ. Đơn hàng của bạn vẫn được lưu ở trạng thái chờ thanh toán.'
+              ? 'Giao dịch VNPay không thành công hoặc chữ ký không hợp lệ. Giỏ hàng của bạn vẫn được giữ nguyên để thử lại.'
               : 'Đường dẫn không có mã đơn hàng. Hãy mở lại từ trang thanh toán hoặc xem lịch sử đơn hàng.'}
           </p>
           <div className="mt-6 flex flex-wrap gap-3 text-sm font-semibold">
             <Link
-              href="/orders"
+              href="/cart"
               className="rounded-xl bg-amber-900 px-4 py-2 text-white hover:bg-amber-950"
             >
-              Xem đơn hàng của tôi
+              Quay lại giỏ hàng
             </Link>
             <Link
-              href="/"
+              href="/orders"
               className="rounded-xl border border-amber-300 px-4 py-2 text-amber-900 hover:bg-amber-50"
             >
-              Tiếp tục mua hàng
+              Xem đơn hàng của tôi
             </Link>
           </div>
         </div>
@@ -127,6 +142,7 @@ function OrderConfirmation() {
   }
 
   const paid = order.status === 'PAID';
+  const paymentFailed = order.status === 'PAYMENT_FAILED';
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -134,23 +150,39 @@ function OrderConfirmation() {
         <div className="flex items-start gap-4">
           <span
             className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl ${
-              paid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
+              paid
+                ? 'bg-emerald-100 text-emerald-700'
+                : paymentFailed
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-amber-100 text-amber-800'
             }`}
             aria-hidden
           >
-            {paid ? '✓' : '⏳'}
+            {paid ? '✓' : paymentFailed ? '✕' : '⏳'}
           </span>
           <div>
             <h1 className="text-2xl font-bold text-zinc-900">
-              {paid ? 'Thanh toán thành công' : 'Đơn hàng đã được ghi nhận'}
+              {paid
+                ? 'Thanh toán thành công'
+                : paymentFailed
+                  ? 'Thanh toán không thành công'
+                  : 'Đơn hàng đã được ghi nhận'}
             </h1>
             <p className="mt-1 text-sm text-zinc-600">
               {paid
                 ? 'BrewLite đã nhận được thanh toán và bắt đầu chuẩn bị đơn của bạn.'
-                : 'Đơn hàng chưa được thanh toán. Vui lòng kiểm tra lại giao dịch VNPay.'}
+                : paymentFailed
+                  ? 'Giao dịch VNPay không thành công nên đơn được đánh dấu thanh toán thất bại. Giỏ hàng của bạn vẫn được giữ nguyên.'
+                  : 'Đơn hàng chưa được thanh toán. Vui lòng kiểm tra lại giao dịch VNPay.'}
             </p>
           </div>
         </div>
+
+        {paymentFailed && (
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Giỏ hàng vẫn còn đủ món bạn đã chọn — mở lại giỏ để kiểm tra và thanh toán lại.
+          </div>
+        )}
 
         <dl className="mt-6 divide-y divide-zinc-100 border-y border-zinc-100 text-sm">
           <div className="flex items-center justify-between gap-4 py-3">
@@ -222,9 +254,21 @@ function OrderConfirmation() {
         )}
 
         <div className="mt-6 flex flex-wrap gap-3 text-sm font-semibold">
+          {paymentFailed && (
+            <Link
+              href="/cart"
+              className="rounded-xl bg-amber-900 px-4 py-2 text-white hover:bg-amber-950"
+            >
+              Quay lại giỏ hàng
+            </Link>
+          )}
           <Link
             href="/orders"
-            className="rounded-xl bg-amber-900 px-4 py-2 text-white hover:bg-amber-950"
+            className={`rounded-xl px-4 py-2 ${
+              paymentFailed
+                ? 'border border-amber-300 text-amber-900 hover:bg-amber-50'
+                : 'bg-amber-900 text-white hover:bg-amber-950'
+            }`}
           >
             Xem đơn hàng của tôi
           </Link>

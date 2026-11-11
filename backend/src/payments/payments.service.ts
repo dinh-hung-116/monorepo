@@ -14,6 +14,11 @@ type OrderRecord = {
   status?: string;
 };
 
+export type PaymentReturnResult = {
+  order: OrderRecord;
+  paid: boolean;
+};
+
 @Injectable()
 export class PaymentsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -70,7 +75,9 @@ export class PaymentsService {
     return `${paymentUrl}?${query}&vnp_SecureHash=${secureHash}`;
   }
 
-  async processPaymentReturn(params: Map<string, string>): Promise<OrderRecord> {
+  async processPaymentReturn(
+    params: Map<string, string>,
+  ): Promise<PaymentReturnResult> {
     const receivedHash = params.get('vnp_SecureHash');
     if (!receivedHash) {
       throw new BadRequestException('Missing VNPay signature');
@@ -109,17 +116,18 @@ export class PaymentsService {
     if (!Number.isFinite(amount) || amount !== Number(order.total_price)) {
       throw new BadRequestException('Payment amount does not match the order');
     }
-    if (
-      params.get('vnp_ResponseCode') !== '00' ||
-      params.get('vnp_TransactionStatus') !== '00'
-    ) {
-      throw new BadRequestException('Payment was not successful');
-    }
+    // Thanh toán thất bại vẫn là một kết quả hợp lệ: đánh dấu đơn PAYMENT_FAILED
+    // để người dùng biết, còn giỏ hàng phía frontend không bị xoá.
+    const paid =
+      params.get('vnp_ResponseCode') === '00' &&
+      params.get('vnp_TransactionStatus') === '00';
 
-    return (await this.prisma.orders.update({
+    const updated = (await this.prisma.orders.update({
       where: { id: orderId },
-      data: { status: 'PAID' },
+      data: { status: paid ? 'PAID' : 'PAYMENT_FAILED' },
     })) as OrderRecord;
+
+    return { order: updated, paid };
   }
 
   private getConfig(primary: string, legacy: string): string | undefined {

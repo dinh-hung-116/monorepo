@@ -18,13 +18,13 @@ import {
 export interface OrderItemRow {
   id?: number;
   order_id?: number;
-  product_id: string;
+  product_id: number | null;
   product_name: string;
   size: string;
-  toppings: unknown;
   price: number | { toString(): string };
   quantity: number;
   subtotal: number | { toString(): string };
+  item_toppings?: Array<{ topping_name: string }>;
 }
 
 export interface OrderRowWithItems {
@@ -33,14 +33,14 @@ export interface OrderRowWithItems {
   user_id: number | null;
   status: string;
   total_price: number | { toString(): string };
-  customer_name?: string | null;
-  customer_phone?: string | null;
-  address?: string | null;
-  note?: string | null;
   created_at: Date | string;
   updated_at?: Date | string;
   items: OrderItemRow[];
 }
+
+type OrderItemsInclude = {
+  items: { include: { item_toppings: true } };
+};
 
 interface OrdersDelegate {
   count(): Promise<number>;
@@ -50,32 +50,28 @@ interface OrdersDelegate {
       user_id: number | null;
       status: string;
       total_price: number;
-      customer_name: string | null;
-      customer_phone: string | null;
-      address: string | null;
-      note: string | null;
       items: {
         create: Array<{
-          product_id: string;
+          product_id: number | null;
           product_name: string;
           size: string;
-          toppings: string[];
           price: number;
           quantity: number;
           subtotal: number;
+          item_toppings?: { create: Array<{ topping_name: string }> };
         }>;
       };
     };
-    include: { items: boolean };
+    include: OrderItemsInclude;
   }): Promise<OrderRowWithItems>;
   findMany(args: {
     where: { user_id: number };
-    include: { items: boolean };
+    include: OrderItemsInclude;
     orderBy: { id: 'asc' | 'desc' };
   }): Promise<OrderRowWithItems[]>;
   findUnique(args: {
     where: { order_code: string };
-    include: { items: boolean };
+    include: OrderItemsInclude;
   }): Promise<OrderRowWithItems | null>;
 }
 
@@ -229,7 +225,7 @@ export class OrdersService {
     // 2. Tìm ID lớn nhất để tạo orderCode duy nhất, tránh trùng #1001, #1002, #1003, #1004 đã có trong DB
     const lastOrders = await this.ordersRepo.findMany({
       where: {} as { user_id: number },
-      include: { items: false },
+      include: { items: { include: { item_toppings: true } } },
       orderBy: { id: 'desc' },
     }).catch(() => []);
     const lastId = lastOrders.length > 0 ? lastOrders[0].id : 0;
@@ -238,18 +234,17 @@ export class OrdersService {
 
     // 3. Ưu tiên dùng raw SQL khi chạy thực tế (có $queryRawUnsafe) để tránh lỗi nhị phân JSONB 08P01 của Prisma
     if (typeof (this.prisma as any)?.$queryRawUnsafe === 'function') {
+      // Phải khai báo "updated_at" tường minh vì cột này dùng @updatedAt trong Prisma —
+      // Prisma chỉ điền tự động khi dùng ORM client, không phải khi dùng raw SQL.
+      // Nếu bỏ qua, PostgreSQL sẽ ném 23502 (not-null violation).
       const orderRows = await (this.prisma as any).$queryRawUnsafe(
-        `INSERT INTO "orders" ("order_code", "user_id", "status", "total_price", "customer_name", "customer_phone", "address", "note")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING id, order_code, user_id, status, total_price, customer_name, customer_phone, address, note, created_at, updated_at`,
+        `INSERT INTO "orders" ("order_code", "user_id", "status", "total_price", "updated_at")
+         VALUES ($1, $2, $3::"OrderStatus", $4, NOW())
+         RETURNING id, order_code, user_id, status, total_price, created_at, updated_at`,
         orderCode,
         validUserId,
         'PENDING',
         total,
-        dto.customerName ?? null,
-        dto.customerPhone ?? null,
-        dto.address ?? null,
-        dto.note ?? null,
       );
 
       const insertedOrder = orderRows[0];
@@ -260,38 +255,35 @@ export class OrdersService {
           ? Number(item.productId)
           : null;
 
-        // Thử insert với integer trước, nếu fail thì text
-        let itemRows: any[];
-        try {
-          itemRows = await (this.prisma as any).$queryRawUnsafe(
-            `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "toppings", "price", "quantity", "subtotal")
-             VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
-             RETURNING id, order_id, product_id, product_name, size, toppings, price, quantity, subtotal`,
-            insertedOrder.id,
-            parsedProdId !== null ? parsedProdId : item.productId,
-            item.productName,
-            item.size,
-            JSON.stringify(item.toppings ?? []),
-            item.unitPrice,
-            item.qty,
-            item.lineTotal,
-          );
-        } catch {
-          itemRows = await (this.prisma as any).$queryRawUnsafe(
-            `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "toppings", "price", "quantity", "subtotal")
-             VALUES ($1, $2::text, $3, $4, $5::jsonb, $6, $7, $8)
-             RETURNING id, order_id, product_id, product_name, size, toppings, price, quantity, subtotal`,
-            insertedOrder.id,
-            String(item.productId),
-            item.productName,
-            item.size,
-            JSON.stringify(item.toppings ?? []),
-            item.unitPrice,
-            item.qty,
-            item.lineTotal,
+        const itemRows = await (this.prisma as any).$queryRawUnsafe(
+          `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "price", "quantity", "subtotal")
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, order_id, product_id, product_name, size, price, quantity, subtotal`,
+          insertedOrder.id,
+          parsedProdId,
+          item.productName,
+          item.size,
+          item.unitPrice,
+          item.qty,
+          item.lineTotal,
+        );
+
+        const insertedItem = itemRows[0] as OrderItemRow;
+        const toppings = item.toppings ?? [];
+        for (const toppingName of toppings) {
+          await (this.prisma as any).$queryRawUnsafe(
+            `INSERT INTO "order_item_toppings" ("order_item_id", "topping_name", "price")
+             VALUES ($1, $2, $3)`,
+            insertedItem.id,
+            toppingName,
+            0,
           );
         }
-        createdItems.push(itemRows[0]);
+
+        createdItems.push({
+          ...insertedItem,
+          item_toppings: toppings.map((topping_name) => ({ topping_name })),
+        });
       }
 
       const rowWithItems: OrderRowWithItems = {
@@ -309,24 +301,26 @@ export class OrdersService {
         user_id: validUserId,
         status: 'PENDING',
         total_price: total,
-        customer_name: dto.customerName ?? null,
-        customer_phone: dto.customerPhone ?? null,
-        address: dto.address ?? null,
-        note: dto.note ?? null,
         items: {
           create: calculatedItems.map((item) => ({
-            product_id: item.productId,
+            product_id: /^\d+$/.test(String(item.productId))
+              ? Number(item.productId)
+              : null,
             product_name: item.productName,
             size: item.size,
-            toppings: item.toppings,
             price: item.unitPrice,
             quantity: item.qty,
             subtotal: item.lineTotal,
+            item_toppings: {
+              create: (item.toppings ?? []).map((topping_name) => ({
+                topping_name,
+              })),
+            },
           })),
         },
       },
       include: {
-        items: true,
+        items: { include: { item_toppings: true } },
       },
     });
 
@@ -435,7 +429,7 @@ export class OrdersService {
       if (parsedUserId !== null) {
         const rows = await this.ordersRepo.findMany({
           where: { user_id: parsedUserId },
-          include: { items: true },
+          include: { items: { include: { item_toppings: true } } },
           orderBy: { id: 'desc' },
         });
         return rows.map((row: OrderRowWithItems) =>
@@ -461,7 +455,7 @@ export class OrdersService {
     try {
       const row = await this.ordersRepo.findUnique({
         where: { order_code: normalizedCode },
-        include: { items: true },
+        include: { items: { include: { item_toppings: true } } },
       });
       if (!row) {
         throw new NotFoundException(`Không tìm thấy đơn hàng ${orderCode}`);
@@ -491,19 +485,17 @@ export class OrdersService {
       userId: row.user_id !== null ? String(row.user_id) : fallbackUserId,
       status: row.status as OrderStatus,
       total: Number(row.total_price),
-      customerName: row.customer_name ?? null,
-      customerPhone: row.customer_phone ?? null,
-      address: row.address ?? null,
-      note: row.note ?? null,
+      customerName: null,
+      customerPhone: null,
+      address: null,
+      note: null,
       items: (row.items ?? []).map((item: OrderItemRow, idx: number) => ({
         id: `${orderId}-item-${item.id ?? idx + 1}`,
         orderId,
-        productId: item.product_id,
+        productId: item.product_id === null ? '' : String(item.product_id),
         productName: item.product_name,
         size: item.size as DrinkSize,
-        toppings: Array.isArray(item.toppings)
-          ? (item.toppings as string[])
-          : [],
+        toppings: (item.item_toppings ?? []).map((t) => t.topping_name),
         qty: item.quantity,
         unitPrice: Number(item.price),
         lineTotal: Number(item.subtotal),
