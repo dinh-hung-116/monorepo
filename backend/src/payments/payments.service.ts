@@ -10,6 +10,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 type OrderRecord = {
   id: number;
   total_price: number | { toString(): string };
+  order_code: string;
+  status?: string;
 };
 
 @Injectable()

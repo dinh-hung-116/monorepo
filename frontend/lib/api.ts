@@ -1,5 +1,6 @@
 // Task 3.1: service gọi API backend.
 import type { Product } from './types';
+import type { ApiOrder } from './types';
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -35,3 +36,7 @@ export const getProducts = () => get<Product[]>('/products');
 
 /** GET /products/:id – chi tiết một món. */
 export const getProduct = (id: number) => get<Product>(`/products/${id}`);
+
+/** GET /orders/:code – thông tin một đơn hàng theo mã đơn. */
+export const getOrderByCode = (orderCode: string) =>
+  get<ApiOrder>(`/orders/${encodeURIComponent(orderCode)}`);

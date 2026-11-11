@@ -7,3 +7,38 @@ export interface Product {
   imageUrl: string;
   category: string;
 }
+
+/** Trạng thái đơn hàng lưu trong PostgreSQL. */
+export type ApiOrderStatus =
+  | 'PENDING'
+  | 'PAID'
+  | 'PREPARING'
+  | 'READY'
+  | 'COMPLETED'
+  | 'PAYMENT_FAILED'
+  | 'CANCELLED';
+
+/** Một dòng món trong đơn hàng trả về từ GET /orders/:code. */
+export interface ApiOrderItem {
+  id: string;
+  productName: string;
+  size: string;
+  toppings: string[];
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+/** Đơn hàng trả về từ GET /orders/:code. */
+export interface ApiOrder {
+  id: string;
+  orderCode: string;
+  status: ApiOrderStatus;
+  total: number;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  address?: string | null;
+  note?: string | null;
+  items: ApiOrderItem[];
+  createdAt: string;
+}

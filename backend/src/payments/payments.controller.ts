@@ -43,20 +43,28 @@ export class PaymentsController {
             const order =
                 await this.paymentsService.processPaymentReturn(params);
 
-            const redirectUrl =
-                `${req.protocol}://${process.env.NEXT_PUBLIC_API_URL}/api/payment/return`
-                + "?orderId="
-                + order.id;
-
-            return res.redirect(redirectUrl);
+            return res.redirect(
+                this.buildFrontendUrl(
+                    req,
+                    `/order-confirmation?orderCode=${encodeURIComponent(order.order_code)}`
+                )
+            );
         } catch (e) {
 
-            const redirectUrl =
-                `${req.protocol}://${process.env.NEXT_PUBLIC_API_URL}/api/payment/return`
-                + "?error=true";
-
-            return res.redirect(redirectUrl);
+            return res.redirect(
+                this.buildFrontendUrl(req, '/order-confirmation?error=true')
+            );
         }
+    }
+
+    /** URL của frontend Next.js để chuyển người dùng về sau khi thanh toán. */
+    private buildFrontendUrl(req: Request, path: string): string {
+        const baseUrl = (
+            process.env.FRONTEND_URL ||
+            process.env.CORS_ORIGIN ||
+            `${req.protocol}://localhost:3000`
+        ).replace(/\/+$/, '');
+        return `${baseUrl}${path}`;
     }
 
     private getIpAddress(req: Request): string {
