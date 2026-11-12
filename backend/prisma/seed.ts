@@ -66,20 +66,26 @@ const PRODUCTS = [
 ];
 
 const TOPPINGS = [
-  { name: 'Trân châu đen', price: 5000 },
-  { name: 'Thạch trái cây', price: 5000 },
-  { name: 'Kem cheese', price: 8000 },
+  { name: 'Trân châu', price: 7000 },
+  { name: 'Pudding', price: 8000 },
+  { name: 'Kem cheese', price: 10000 },
 ];
 
+// quantity là tồn kho khởi tạo cho database mới; chạy lại seed không ghi đè tồn kho đang có.
 const INGREDIENTS = [
-  { name: 'Cà phê hạt', unit: 'gram', quantity: 10000 },
-  { name: 'Sữa tươi', unit: 'ml', quantity: 30000 },
+  { name: 'Cà phê rang xay', unit: 'g', quantity: 10000 },
   { name: 'Sữa đặc', unit: 'ml', quantity: 15000 },
-  { name: 'Trà đen', unit: 'gram', quantity: 5000 },
-  { name: 'Trân châu đen', unit: 'gram', quantity: 8000 },
-  { name: 'Đào ngâm', unit: 'gram', quantity: 6000 },
-  { name: 'Bột matcha', unit: 'gram', quantity: 3000 },
-  { name: 'Bột chocolate', unit: 'gram', quantity: 4000 },
+  { name: 'Sữa tươi', unit: 'ml', quantity: 30000 },
+  { name: 'Trà đen', unit: 'g', quantity: 5000 },
+  { name: 'Đào ngâm', unit: 'g', quantity: 6000 },
+  { name: 'Bột matcha', unit: 'g', quantity: 3000 },
+  { name: 'Bột cacao', unit: 'g', quantity: 4000 },
+  { name: 'Đường', unit: 'g', quantity: 20000 },
+  { name: 'Đá', unit: 'g', quantity: 100000 },
+  { name: 'Trân châu', unit: 'g', quantity: 8000 },
+  { name: 'Pudding', unit: 'g', quantity: 5000 },
+  { name: 'Kem cheese', unit: 'g', quantity: 4000 },
+  { name: 'Ly nhựa', unit: 'cái', quantity: 1000 },
 ];
 
 const USERS = [
@@ -189,37 +195,61 @@ async function main() {
       promotions.set(row.promo_code!, row.id);
     }
 
+    // Công thức chuẩn cho 1 ly size M; ly S/L nhân với hệ số trong bảng recipes (0.8 / 1.0 / 1.25).
     const recipeData: Record<string, Array<[string, number]>> = {
-      'Cà phê đen': [['Cà phê hạt', 18]],
+      'Cà phê đen': [
+        ['Cà phê rang xay', 18],
+        ['Đường', 8],
+        ['Đá', 150],
+        ['Ly nhựa', 1],
+      ],
       'Cà phê sữa': [
-        ['Cà phê hạt', 18],
-        ['Sữa đặc', 20],
+        ['Cà phê rang xay', 18],
+        ['Sữa đặc', 30],
+        ['Đá', 150],
+        ['Ly nhựa', 1],
       ],
       'Bạc xỉu': [
-        ['Cà phê hạt', 12],
+        ['Cà phê rang xay', 10],
         ['Sữa tươi', 120],
         ['Sữa đặc', 15],
+        ['Đá', 150],
+        ['Ly nhựa', 1],
       ],
       Latte: [
-        ['Cà phê hạt', 18],
+        ['Cà phê rang xay', 18],
         ['Sữa tươi', 150],
+        ['Đá', 100],
+        ['Ly nhựa', 1],
       ],
       'Trà sữa trân châu': [
         ['Trà đen', 8],
         ['Sữa tươi', 120],
-        ['Trân châu đen', 50],
+        ['Đường', 10],
+        ['Trân châu', 50],
+        ['Đá', 150],
+        ['Ly nhựa', 1],
       ],
       'Trà đào': [
-        ['Trà đen', 8],
+        ['Trà đen', 6],
         ['Đào ngâm', 80],
+        ['Đường', 10],
+        ['Đá', 180],
+        ['Ly nhựa', 1],
       ],
       'Matcha Latte': [
-        ['Bột matcha', 5],
+        ['Bột matcha', 6],
         ['Sữa tươi', 150],
+        ['Đường', 10],
+        ['Đá', 120],
+        ['Ly nhựa', 1],
       ],
       'Chocolate đá': [
-        ['Bột chocolate', 25],
-        ['Sữa tươi', 120],
+        ['Bột cacao', 20],
+        ['Sữa tươi', 100],
+        ['Đường', 10],
+        ['Đá', 150],
+        ['Ly nhựa', 1],
       ],
     };
     for (const [productName, recipeIngredients] of Object.entries(recipeData)) {
@@ -247,10 +277,12 @@ async function main() {
       }
     }
 
-    // Công thức topping: topping nào có nguyên liệu cùng tên trong seed thì bị trừ kho theo topping.
-    // Topping không khai báo ở đây coi như không giới hạn bởi nguyên liệu (maxCups = null).
+    // Công thức topping: mỗi phần topping tiêu hao bao nhiêu nguyên liệu.
+    // Topping không khai báo ở đây coi như không bị giới hạn bởi kho (maxCups = null).
     const toppingRecipeData: Record<string, Array<[string, number]>> = {
-      'Trân châu đen': [['Trân châu đen', 30]],
+      'Trân châu': [['Trân châu', 50]],
+      Pudding: [['Pudding', 60]],
+      'Kem cheese': [['Kem cheese', 40]],
     };
     for (const [toppingName, toppingIngredients] of Object.entries(
       toppingRecipeData,
@@ -302,9 +334,9 @@ async function main() {
               item_toppings: {
                 create: [
                   {
-                    topping_id: toppings.get('Trân châu đen')!,
-                    topping_name: 'Trân châu đen',
-                    price: 5000,
+                    topping_id: toppings.get('Trân châu')!,
+                    topping_name: 'Trân châu',
+                    price: 7000,
                   },
                 ],
               },
