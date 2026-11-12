@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -29,6 +30,20 @@ export class OrdersController {
     @Body() createOrderDto: CreateOrderDto,
   ): Promise<Order> {
     return this.ordersService.createOrder(req.user.userId, createOrderDto);
+  }
+
+  @Post('validate-promotion')
+  async validatePromotion(@Body() body: { code?: string; subtotal?: number }) {
+    if (
+      !body.code?.trim() ||
+      typeof body.subtotal !== 'number' ||
+      body.subtotal < 0
+    ) {
+      throw new BadRequestException(
+        'Mã khuyến mãi và tổng tiền hợp lệ là bắt buộc',
+      );
+    }
+    return this.ordersService.validatePromotion(body.code, body.subtotal);
   }
 
   @UseGuards(JwtAuthGuard)

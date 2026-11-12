@@ -8,15 +8,21 @@ export interface Product {
   category: string;
 }
 
+export interface Topping {
+  id: string;
+  name: string;
+  price: number;
+}
+
 /** Trạng thái đơn hàng lưu trong PostgreSQL. */
 export type ApiOrderStatus =
-  | 'PENDING'
-  | 'PAID'
-  | 'PREPARING'
-  | 'READY'
-  | 'COMPLETED'
-  | 'PAYMENT_FAILED'
-  | 'CANCELLED';
+  | "PENDING"
+  | "PAID"
+  | "PREPARING"
+  | "READY"
+  | "COMPLETED"
+  | "PAYMENT_FAILED"
+  | "CANCELLED";
 
 /** Một dòng món trong đơn hàng trả về từ GET /orders/:code. */
 export interface ApiOrderItem {

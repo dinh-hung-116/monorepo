@@ -1,17 +1,25 @@
-'use client';
+"use client";
 
 // Task 4.2: chọn size (S/M/L) và topping cho một món.
-import { toggleTopping } from '@/lib/options';
-import { formatVnd, SIZES, TOPPINGS, type Size, type ToppingId } from '@/lib/pricing';
+import { toggleTopping } from "@/lib/options";
+import { formatVnd, SIZES, type Size, type ToppingId } from "@/lib/pricing";
+import type { Topping } from "@/lib/types";
 
 interface Props {
   size: Size;
   toppings: ToppingId[];
   onSizeChange: (size: Size) => void;
   onToppingsChange: (toppings: ToppingId[]) => void;
+  toppingsOptions: Topping[];
 }
 
-export default function ProductOptions({ size, toppings, onSizeChange, onToppingsChange }: Props) {
+export default function ProductOptions({
+  size,
+  toppings,
+  onSizeChange,
+  onToppingsChange,
+  toppingsOptions,
+}: Props) {
   return (
     <>
       <fieldset className="mt-6">
@@ -27,11 +35,15 @@ export default function ProductOptions({ size, toppings, onSizeChange, onTopping
                 aria-checked={active}
                 onClick={() => onSizeChange(s.size)}
                 className={`flex-1 rounded-xl border px-3 py-2 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800 ${
-                  active ? 'border-amber-800 bg-amber-800 text-white' : 'border-zinc-300 hover:border-amber-800'
+                  active
+                    ? "border-amber-800 bg-amber-800 text-white"
+                    : "border-zinc-300 hover:border-amber-800"
                 }`}
               >
                 {s.size}
-                <span className="block text-xs font-normal">{s.extra ? `+${formatVnd(s.extra)}` : 'Giá gốc'}</span>
+                <span className="block text-xs font-normal">
+                  {s.extra ? `+${formatVnd(s.extra)}` : "Giá gốc"}
+                </span>
               </button>
             );
           })}
@@ -40,8 +52,11 @@ export default function ProductOptions({ size, toppings, onSizeChange, onTopping
 
       <fieldset className="mt-5">
         <legend className="mb-2 font-semibold">Topping</legend>
-        {TOPPINGS.map((t) => (
-          <label key={t.id} className="flex cursor-pointer items-center gap-3 py-1.5">
+        {toppingsOptions.map((t) => (
+          <label
+            key={t.id}
+            className="flex cursor-pointer items-center gap-3 py-1.5"
+          >
             <input
               type="checkbox"
               checked={toppings.includes(t.id)}

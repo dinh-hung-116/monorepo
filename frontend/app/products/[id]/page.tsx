@@ -1,27 +1,26 @@
-'use client';
+"use client";
 
 // Task 4.1 + 4.2 + 4.3 + Task 5: trang chi tiết sản phẩm, chọn size/topping/số lượng, tính giá và thêm vào giỏ hàng.
-import Image from 'next/image';
-import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
-import { ApiError, getProduct } from '@/lib/api';
-import ProductOptions from '@/components/ProductOptions';
-import { useCart } from '@/context/CartContext';
+import Image from "next/image";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { ApiError, getProduct, getToppings } from "@/lib/api";
+import ProductOptions from "@/components/ProductOptions";
+import { useCart } from "@/context/CartContext";
 import {
   calculatePrice,
   formatVnd,
-  TOPPINGS,
   type Size,
   type ToppingId,
-} from '@/lib/pricing';
-import type { Product } from '@/lib/types';
+} from "@/lib/pricing";
+import type { Product, Topping } from "@/lib/types";
 
 type State =
-  | { kind: 'loading' }
-  | { kind: 'not-found' }
-  | { kind: 'error' }
-  | { kind: 'ready'; product: Product };
+  | { kind: "loading" }
+  | { kind: "not-found" }
+  | { kind: "error" }
+  | { kind: "ready"; product: Product };
 
 export default function ProductDetailPage() {
   // useParams cần nằm trong Suspense khi bật cacheComponents (next.config.ts)
@@ -38,36 +37,59 @@ function ProductDetail() {
   const { id } = useParams<{ id: string }>();
   const productId = Number(id);
   const validId = Number.isInteger(productId) && productId > 0;
-  const [state, setState] = useState<State>(validId ? { kind: 'loading' } : { kind: 'not-found' });
-  const [size, setSize] = useState<Size>('S');
+  const [state, setState] = useState<State>(
+    validId ? { kind: "loading" } : { kind: "not-found" },
+  );
+  const [size, setSize] = useState<Size>("S");
   const [toppings, setToppings] = useState<ToppingId[]>([]);
   const [quantity, setQuantity] = useState(1);
+  const [toppingsOptions, setToppingsOptions] = useState<Topping[]>([]);
 
   useEffect(() => {
     if (!validId) return;
-    getProduct(productId)
-      .then((product) => setState({ kind: 'ready', product }))
-      .catch((err) => setState({ kind: err instanceof ApiError && err.status === 404 ? 'not-found' : 'error' }));
+    Promise.all([getProduct(productId), getToppings()])
+      .then(([product, loadedToppings]) => {
+        setToppingsOptions(loadedToppings);
+        setState({ kind: "ready", product });
+      })
+      .catch((err) =>
+        setState({
+          kind:
+            err instanceof ApiError && err.status === 404
+              ? "not-found"
+              : "error",
+        }),
+      );
   }, [productId, validId]);
 
   const back = (
-    <Link href="/" className="text-sm font-medium text-amber-800 hover:underline">
+    <Link
+      href="/"
+      className="text-sm font-medium text-amber-800 hover:underline"
+    >
       ← Quay lại menu
     </Link>
   );
 
-  if (state.kind === 'loading') return <DetailSkeleton />;
+  if (state.kind === "loading") return <DetailSkeleton />;
 
-  if (state.kind !== 'ready') {
+  if (state.kind !== "ready") {
     return (
       <main className="mx-auto w-full max-w-4xl px-4 py-10">
         {back}
-        <div role="alert" className="mt-6 rounded-xl border border-zinc-300 p-8 text-center">
+        <div
+          role="alert"
+          className="mt-6 rounded-xl border border-zinc-300 p-8 text-center"
+        >
           <p className="font-semibold">
-            {state.kind === 'not-found' ? 'Không tìm thấy món này.' : 'Không tải được thông tin món.'}
+            {state.kind === "not-found"
+              ? "Không tìm thấy món này."
+              : "Không tải được thông tin món."}
           </p>
           <p className="mt-1 text-sm text-zinc-600">
-            {state.kind === 'not-found' ? 'Món có thể đã ngừng bán.' : 'Kiểm tra backend đã chạy rồi tải lại trang.'}
+            {state.kind === "not-found"
+              ? "Món có thể đã ngừng bán."
+              : "Kiểm tra backend đã chạy rồi tải lại trang."}
           </p>
         </div>
       </main>
@@ -75,12 +97,24 @@ function ProductDetail() {
   }
 
   const { product } = state;
-  const unitPrice = calculatePrice(product.price, size, toppings, 1);
-  const total = calculatePrice(product.price, size, toppings, quantity);
+  const unitPrice = calculatePrice(
+    product.price,
+    size,
+    toppings,
+    1,
+    toppingsOptions,
+  );
+  const total = calculatePrice(
+    product.price,
+    size,
+    toppings,
+    quantity,
+    toppingsOptions,
+  );
 
   const handleAddToCart = () => {
     const toppingNames = toppings.map(
-      (idItem) => TOPPINGS.find((t) => t.id === idItem)?.name ?? idItem,
+      (idItem) => toppingsOptions.find((t) => t.id === idItem)?.name ?? idItem,
     );
     addItem({
       productId: String(product.id),
@@ -90,7 +124,7 @@ function ProductDetail() {
       unitPrice,
       qty: quantity,
     });
-    router.push('/cart');
+    router.push("/cart");
   };
 
   return (
@@ -98,7 +132,7 @@ function ProductDetail() {
       {back}
       <div className="mt-6 grid gap-8 md:grid-cols-2">
         <Image
-          src={product.imageUrl || 'https://placehold.co/600x400?text=BrewLite'}
+          src={product.imageUrl || "https://placehold.co/600x400?text=BrewLite"}
           alt={product.name}
           width={600}
           height={400}
@@ -110,12 +144,23 @@ function ProductDetail() {
         <section>
           <p className="text-sm text-zinc-500">{product.category}</p>
           <h1 className="text-3xl font-bold tracking-tight">{product.name}</h1>
-          {product.description && <p className="mt-2 text-zinc-600 dark:text-zinc-400">{product.description}</p>}
+          {product.description && (
+            <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+              {product.description}
+            </p>
+          )}
           <p className="mt-3 text-lg">
-            Giá gốc: <span className="font-semibold">{formatVnd(product.price)}</span>
+            Giá gốc:{" "}
+            <span className="font-semibold">{formatVnd(product.price)}</span>
           </p>
 
-          <ProductOptions size={size} toppings={toppings} onSizeChange={setSize} onToppingsChange={setToppings} />
+          <ProductOptions
+            size={size}
+            toppings={toppings}
+            onSizeChange={setSize}
+            onToppingsChange={setToppings}
+            toppingsOptions={toppingsOptions}
+          />
 
           <div className="mt-6 flex items-center justify-between">
             <span className="font-semibold">Số lượng</span>
@@ -162,7 +207,11 @@ function ProductDetail() {
 
 function DetailSkeleton() {
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-10" aria-busy="true" aria-label="Đang tải món">
+    <main
+      className="mx-auto w-full max-w-4xl px-4 py-10"
+      aria-busy="true"
+      aria-label="Đang tải món"
+    >
       <div className="grid animate-pulse gap-8 md:grid-cols-2">
         <div className="aspect-[3/2] rounded-2xl bg-zinc-200 dark:bg-zinc-800" />
         <div className="space-y-3">

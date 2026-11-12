@@ -99,8 +99,6 @@ describe('OrdersService (Task 6.2)', () => {
           unitPrice: 37000,
         },
       ],
-      customerName: 'Tùng',
-      customerPhone: '0987654321',
     });
 
     expect(res.status).toBe('PENDING');
@@ -108,6 +106,5 @@ describe('OrdersService (Task 6.2)', () => {
     expect(res.total).toBe(74000);
     expect(res.items).toHaveLength(1);
     expect(res.items[0].lineTotal).toBe(74000);
-    expect(res.customerName).toBe('Tùng');
   });
 });

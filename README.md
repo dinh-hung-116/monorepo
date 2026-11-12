@@ -13,7 +13,7 @@
 | Mã | Việc | File |
 | --- | --- | --- |
 | 1 | Khởi tạo Monorepo (`frontend` Next.js + `backend` NestJS), `GET /` trả `"Hello World!"`, `.env.example`, `README.md` | `frontend/`, `backend/`, `.env.example`, `README.md` |
-| 2.1 | Seed 8 sản phẩm mẫu (Prisma + PostgreSQL, kèm dữ liệu mẫu dự phòng) | `backend/prisma/schema.prisma`, `backend/prisma/migrations/`, `backend/prisma/seed.ts` |
+| 2.1 | Seed 8 sản phẩm và dữ liệu liên kết cho toàn bộ bảng (Prisma + PostgreSQL) | `backend/prisma/schema.prisma`, `backend/prisma/migrations/`, `backend/prisma/seed.ts` |
 | 2.2 | `GET /products`, `GET /products/:id` (404 khi không có, 400 khi id không phải số) | `backend/src/products/` |
 | 2.3 | Kiểm thử API sản phẩm (Unit + E2E), thời gian phản hồi `< 500ms` | `backend/test/products.e2e-spec.ts` |
 | 3.1 | Service gọi API: timeout 8 giây, phân biệt 404 / lỗi máy chủ / mất kết nối | `frontend/lib/api.ts` (test: `api.test.ts`) |
@@ -54,9 +54,13 @@ cd backend
 cp .env.example .env          # Windows PowerShell: Copy-Item .env.example .env
 npm install
 npm run db:migrate            # nếu dùng PostgreSQL
-npm run db:seed               # nếu dùng PostgreSQL
+npm run db:seed               # seed products, users, orders, inventory, promotions và payments
 npm run start:dev
 ```
+
+Tài khoản mẫu sau khi seed đều dùng mật khẩu `BrewLite123!`: `customer@brewlite.test`,
+`staff@brewlite.test` và `admin@brewlite.test`. Seed có thể chạy lại an toàn mà không
+tạo bản ghi trùng.
 
 ### 3. Chạy Frontend (Next.js – Port 3000)
 ```bash

@@ -180,7 +180,14 @@ function OrderConfirmation() {
 
         {paymentFailed && (
           <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Giỏ hàng vẫn còn đủ món bạn đã chọn — mở lại giỏ để kiểm tra và thanh toán lại.
+            Vui lòng kiểm tra chi tiết đơn hàng để xem trạng thái và thử lại
+            thanh toán. Giỏ hàng vẫn còn đủ món bạn đã chọn.
+            <Link
+              href={`/orders/${encodeURIComponent(order.orderCode)}`}
+              className="ml-1 font-semibold underline hover:text-amber-950"
+            >
+              Xem chi tiết đơn hàng
+            </Link>
           </div>
         )}
 

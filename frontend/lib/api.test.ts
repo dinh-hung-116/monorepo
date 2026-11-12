@@ -1,7 +1,13 @@
 // Task 3.1: kiểm thử service gọi API với fetch giả lập. Chạy: npm test trong thư mục frontend
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { API_URL, ApiError, getProduct, getProducts } from './api.ts';
+import {
+  API_URL,
+  ApiError,
+  createPayment,
+  getProduct,
+  getProducts,
+} from './api.ts';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -46,4 +52,20 @@ test('backend lỗi 500 → ApiError status 500', async () => {
 test('không kết nối được hoặc quá thời gian chờ → ApiError status 0', async () => {
   mockFetch(new TypeError('fetch failed'));
   await assert.rejects(getProducts(), (err: unknown) => err instanceof ApiError && err.status === 0);
+});
+
+test('createPayment gửi Idempotency-Key cho mỗi payment attempt', async () => {
+  let request: RequestInit | undefined;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    request = init;
+    return Response.json({ paymentUrl: 'https://vnpay.example/checkout' });
+  }) as typeof fetch;
+
+  await createPayment('#1042', 'checkout-attempt-001');
+
+  assert.equal(request?.method, 'POST');
+  assert.equal(
+    new Headers(request?.headers).get('Idempotency-Key'),
+    'checkout-attempt-001',
+  );
 });

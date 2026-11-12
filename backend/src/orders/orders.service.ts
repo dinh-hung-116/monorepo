@@ -7,13 +7,9 @@ import {
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { OrderStatus } from '@prisma/client';
 import { CreateOrderDto } from './dto/create-order.dto.js';
-import {
-  DrinkSize,
-  Order,
-  OrderItem,
-  OrderStatus,
-} from './entities/order.entity.js';
+import { DrinkSize, Order, OrderItem } from './entities/order.entity.js';
 
 export interface OrderItemRow {
   id?: number;
@@ -50,6 +46,8 @@ interface OrdersDelegate {
       user_id: number | null;
       status: string;
       total_price: number;
+      promotion_id?: number | null;
+      discount_amount?: number;
       items: {
         create: Array<{
           product_id: number | null;
@@ -92,10 +90,7 @@ function isMissingTableError(err: unknown): boolean {
 }
 
 function isDatabaseUnavailableError(err: unknown): boolean {
-  if (
-    err instanceof BadRequestException ||
-    err instanceof NotFoundException
-  ) {
+  if (err instanceof BadRequestException || err instanceof NotFoundException) {
     return false;
   }
   const name = (err as { name?: string })?.name ?? '';
@@ -135,7 +130,8 @@ export class OrdersService {
   }
 
   private get ordersRepo(): OrdersDelegate {
-    const repo = (this.prisma as unknown as { orders?: OrdersDelegate })?.orders;
+    const repo = (this.prisma as unknown as { orders?: OrdersDelegate })
+      ?.orders;
     if (!repo) {
       const err = new Error("Can't reach database server");
       (err as { code?: string }).code = 'P1001';
@@ -186,7 +182,11 @@ export class OrdersService {
         orderSeq: this.orderSequence,
         orders: Array.from(this.fallbackOrders.values()),
       };
-      writeFileSync(LOCAL_ORDERS_PATH, JSON.stringify(payload, null, 2), 'utf8');
+      writeFileSync(
+        LOCAL_ORDERS_PATH,
+        JSON.stringify(payload, null, 2),
+        'utf8',
+      );
     } catch {
       // Ignore disk write errors
     }
@@ -206,12 +206,20 @@ export class OrdersService {
       unitPrice: number;
       lineTotal: number;
     }>,
+    promotionId: number | null,
+    discountAmount: number,
   ): Promise<Order> {
     // 1. Kiểm tra tài khoản có thực sự tồn tại trong DB không để tránh lỗi foreign key (P2003)
     let validUserId: number | null = null;
     if (parsedUserId !== null) {
       try {
-        const userExists = await (this.prisma as unknown as { users?: { findUnique: (args: { where: { id: number } }) => Promise<unknown> } })?.users?.findUnique({
+        const userExists = await (
+          this.prisma as unknown as {
+            users?: {
+              findUnique: (args: { where: { id: number } }) => Promise<unknown>;
+            };
+          }
+        )?.users?.findUnique({
           where: { id: parsedUserId },
         });
         if (userExists) {
@@ -223,11 +231,13 @@ export class OrdersService {
     }
 
     // 2. Tìm ID lớn nhất để tạo orderCode duy nhất, tránh trùng #1001, #1002, #1003, #1004 đã có trong DB
-    const lastOrders = await this.ordersRepo.findMany({
-      where: {} as { user_id: number },
-      include: { items: { include: { item_toppings: true } } },
-      orderBy: { id: 'desc' },
-    }).catch(() => []);
+    const lastOrders = await this.ordersRepo
+      .findMany({
+        where: {} as { user_id: number },
+        include: { items: { include: { item_toppings: true } } },
+        orderBy: { id: 'desc' },
+      })
+      .catch(() => []);
     const lastId = lastOrders.length > 0 ? lastOrders[0].id : 0;
     const seq = Math.max(1001 + lastOrders.length, 1000 + lastId + 1);
     const orderCode = `#${seq}`;
@@ -238,13 +248,15 @@ export class OrdersService {
       // Prisma chỉ điền tự động khi dùng ORM client, không phải khi dùng raw SQL.
       // Nếu bỏ qua, PostgreSQL sẽ ném 23502 (not-null violation).
       const orderRows = await (this.prisma as any).$queryRawUnsafe(
-        `INSERT INTO "orders" ("order_code", "user_id", "status", "total_price", "updated_at")
-         VALUES ($1, $2, $3::"OrderStatus", $4, NOW())
+        `INSERT INTO "orders" ("order_code", "user_id", "status", "total_price", "promotion_id", "discount_amount", "updated_at")
+         VALUES ($1, $2, $3::"OrderStatus", $4, $5, $6, NOW())
          RETURNING id, order_code, user_id, status, total_price, created_at, updated_at`,
         orderCode,
         validUserId,
-        'PENDING',
+        OrderStatus.PENDING,
         total,
+        promotionId,
+        discountAmount,
       );
 
       const insertedOrder = orderRows[0];
@@ -301,6 +313,8 @@ export class OrdersService {
         user_id: validUserId,
         status: 'PENDING',
         total_price: total,
+        promotion_id: promotionId,
+        discount_amount: discountAmount,
         items: {
           create: calculatedItems.map((item) => ({
             product_id: /^\d+$/.test(String(item.productId))
@@ -345,16 +359,30 @@ export class OrdersService {
       };
     });
 
-    const total = calculatedItems.reduce((sum, item) => sum + item.lineTotal, 0);
+    const total = calculatedItems.reduce(
+      (sum, item) => sum + item.lineTotal,
+      0,
+    );
+    let promotionId: number | null = null;
+    let discountAmount = 0;
+    const promotionCode = dto.promotionCode?.trim().toUpperCase();
+    if (promotionCode) {
+      const validated = await this.validatePromotion(promotionCode, total);
+      promotionId = validated.promotionId;
+      discountAmount = validated.discountAmount;
+    }
+    const payableTotal = total - discountAmount;
     const parsedUserId = /^\d+$/.test(String(userId)) ? Number(userId) : null;
 
     try {
       return await this.createOrderInDb(
         userId,
         parsedUserId,
-        total,
+        payableTotal,
         dto,
         calculatedItems,
+        promotionId,
+        discountAmount,
       );
     } catch (err) {
       let finalErr: unknown = err;
@@ -363,9 +391,11 @@ export class OrdersService {
           return await this.createOrderInDb(
             userId,
             parsedUserId,
-            total,
+            payableTotal,
             dto,
             calculatedItems,
+            promotionId,
+            discountAmount,
           );
         } catch (retryErr) {
           finalErr = retryErr;
@@ -420,6 +450,45 @@ export class OrdersService {
       this.saveFallbackToDisk();
       return order;
     }
+  }
+
+  async validatePromotion(code: string, subtotal: number) {
+    const promotion = await this.prisma.promotions.findFirst({
+      where: {
+        promo_code: code.trim().toUpperCase(),
+        is_active: true,
+        start_date: { lte: new Date() },
+        end_date: { gte: new Date() },
+      },
+    });
+    if (!promotion) {
+      throw new BadRequestException(
+        'Mã khuyến mãi không hợp lệ hoặc đã hết hạn',
+      );
+    }
+    if (
+      promotion.min_order_value !== null &&
+      subtotal < Number(promotion.min_order_value)
+    ) {
+      throw new BadRequestException(
+        `Đơn hàng tối thiểu ${Number(promotion.min_order_value).toLocaleString('vi-VN')}đ để áp dụng mã này`,
+      );
+    }
+    let discountAmount =
+      promotion.discount_type === 'PERCENTAGE'
+        ? subtotal * (Number(promotion.discount_value) / 100)
+        : Number(promotion.discount_value);
+    if (promotion.max_discount !== null) {
+      discountAmount = Math.min(discountAmount, Number(promotion.max_discount));
+    }
+    discountAmount = Math.min(Math.max(0, discountAmount), subtotal);
+    return {
+      promotionId: promotion.id,
+      discountType: promotion.discount_type,
+      discountValue: Number(promotion.discount_value),
+      discountAmount,
+      total: subtotal - discountAmount,
+    };
   }
 
   async findByUser(userId: string): Promise<Order[]> {
