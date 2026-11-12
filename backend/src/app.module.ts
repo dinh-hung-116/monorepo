@@ -8,6 +8,8 @@ import { PaymentsModule } from './payments/payments.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { ProductsModule } from './products/products.module.js';
 import { ToppingsModule } from './toppings/toppings.module.js';
+import { ScheduleModule } from '@nestjs/schedule';
+
 
 @Module({
   imports: [
@@ -18,6 +20,7 @@ import { ToppingsModule } from './toppings/toppings.module.js';
     InventoryModule,
     OrdersModule,
     PaymentsModule,
+    ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [AppService],

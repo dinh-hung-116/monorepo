@@ -11,43 +11,29 @@ export class PaymentsSchedulerService {
 
     @Cron(CronExpression.EVERY_MINUTE)
     async expirePendingPayments() {
-        const expirationTime = new Date(Date.now() - 3 * 60 * 1000);
+        const holdMinutes = Number(
+            process.env.ORDER_HOLD_MINUTES ?? 15,
+        );
+        if (!Number.isFinite(holdMinutes) || holdMinutes <= 0) {
+            this.logger.warn(
+                'ORDER_HOLD_MINUTES không hợp lệ — tắt chức năng tự huỷ đơn quá hạn',
+            );
+            return;
+        }
+        const expirationTime = new Date(Date.now() - holdMinutes * 60 * 1000);
 
-        const result = await this.prisma.$transaction(async (tx) => {
-            const expiredPayments = await tx.payments.updateMany({
-                where: {
-                    status: 'PENDING',
-                    created_at: {
-                        lte: expirationTime,
-                    },
+        const expiredPayments = await this.prisma.payments.updateMany({
+            where: {
+                status: 'PENDING',
+                created_at: {
+                    lte: expirationTime,
                 },
-                data: {
-                    status: PaymentStatus.FAILED,
-                },
-            });
-
-            const expiredOrders = await tx.orders.updateMany({
-                where: {
-                    status: 'PENDING',
-                    payments: {
-                        some: {
-                            status: PaymentStatus.FAILED,
-                            created_at: {
-                                lte: expirationTime,
-                            },
-                        },
-                        none: {
-                            status: PaymentStatus.PENDING,
-                        },
-                    },
-                },
-                data: {
-                    status: 'CANCELLED',
-                },
-            });
-            return expiredPayments;
+            },
+            data: {
+                status: PaymentStatus.FAILED,
+            },
         });
 
-        this.logger.log(`Expired ${result.count} payments`);
+        this.logger.log(`Expired ${expiredPayments.count} payments`);
     }
 }

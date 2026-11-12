@@ -9,7 +9,7 @@ import {
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import {OrderStatus, Prisma} from "@prisma/client";
+import { Prisma } from '@prisma/client';
 
 type OrderRecord = {
   id: number;
@@ -217,7 +217,6 @@ export class PaymentsService {
 
     if (paid) {
       await this.awardLoyaltyPoints(order);
-      await this.completeSuccessfulPayment(orderId);
     }
 
     // Tồn kho: thanh toán xong thì trừ thật khỏi kho, thất bại thì trả lại phần đã giữ chỗ
@@ -235,54 +234,6 @@ export class PaymentsService {
     }
 
     return { order: updated, paid };
-  }
-
-  private async completeSuccessfulPayment(
-    orderId: number,
-  ): Promise<void> {
-
-    // Unit-test doubles may not expose Prisma's transaction API.
-    if (!this.prisma.$transaction) return;
-    const order = await this.prisma.orders.findUnique({
-      where: { id: orderId, status: OrderStatus.PAID },
-      include: {
-        items: {
-          include: {
-            product: {
-              include: {
-                recipe: { include: { ingredients: true } },
-              },
-            },
-          },
-        },
-      },
-    });
-    if (!order) throw new NotFoundException('Order not found, or it is not paid for');
-
-    const requiredByIngredient = new Map<number, number>();
-    for (const item of order.items) {
-      for (const recipeIngredient of item.product?.recipe?.ingredients ?? []) {
-        const required =
-          Number(recipeIngredient.quantity) * item.quantity;
-        requiredByIngredient.set(
-          recipeIngredient.ingredient_id,
-          (requiredByIngredient.get(recipeIngredient.ingredient_id) ?? 0) +
-            required,
-        );
-      }
-    }
-
-    for (const [ingredientId, required] of requiredByIngredient) {
-      const result = await this.prisma.ingredients.updateMany({
-        where: { id: ingredientId, quantity: { gte: required } },
-        data: { quantity: { decrement: required } },
-      });
-      if (result.count !== 1) {
-        throw new BadRequestException(
-          'Không đủ nguyên liệu để hoàn tất đơn hàng',
-        );
-      }
-    }
   }
 
   private async awardLoyaltyPoints(order: OrderRecord): Promise<void> {
