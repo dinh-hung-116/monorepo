@@ -68,10 +68,12 @@ export class OrdersController {
   async cancelOrder(
     @Req() req: AuthenticatedRequest,
     @Param('code') code: string,
-  ): Promise<void> {
-     await Promise.all([
-         this.ordersService.cancelOrder(code, req.user.userId),
-         this.paymentsService.cancelPayment(code, req.user.userId),
+  ): Promise<Order> {
+    let order;
+    await Promise.all([
+      order = await this.ordersService.cancelOrder(code, req.user.userId),
+      await this.paymentsService.cancelPayment(code, req.user.userId),
     ]);
+    return order;
   }
 }

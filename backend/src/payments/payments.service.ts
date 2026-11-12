@@ -229,7 +229,7 @@ export class PaymentsService {
 
     // Tồn kho: thanh toán xong thì trừ thật khỏi kho, thất bại thì trả lại phần đã giữ chỗ
     // để giỏ hàng/nguyên liệu vẫn dùng được cho lần thanh toán sau.
-    try {
+    /*try {
       if (paid) {
         await this.inventory?.consumeForOrder(orderId);
       } else {
@@ -239,7 +239,7 @@ export class PaymentsService {
       this.logger.error(
         `Không cập nhật được tồn kho cho đơn ${orderId}: ${(err as Error)?.message ?? String(err)}`,
       );
-    }
+    }*/
 
     return { order: updated, paid };
   }
@@ -284,7 +284,7 @@ export class PaymentsService {
   async cancelPayment(
     orderCode: string,
     userId: string,
-  ): Promise<CancelPaymentResult> {
+  ): Promise<void> {
     const numericUserId = Number(userId);
     if (!Number.isSafeInteger(numericUserId) || numericUserId <= 0) {
       throw new NotFoundException('Order not found');
@@ -298,14 +298,10 @@ export class PaymentsService {
     if (!order || order.user_id !== numericUserId) {
       throw new NotFoundException('Order not found');
     }
-    if (!['PENDING', 'PAID', 'PAYMENT_FAILED'].includes(order.status ?? '')) {
+    if (!['PENDING', 'PAID', 'PAYMENT_FAILED', "CANCELLED"].includes(order.status ?? '')) {
+      console.log(order.status);
       throw new BadRequestException('This order cannot be cancelled');
     }
-
-    const updated = (await this.prisma.orders.update({
-      where: { id: order.id },
-      data: { status: 'CANCELLED' },
-    })) as OrderRecord;
 
     if (order.status === 'PENDING') {
       await this.prisma.payments.updateMany({
@@ -313,8 +309,6 @@ export class PaymentsService {
         data: { status: 'FAILED' },
       });
     }
-
-    return { order: updated };
   }
 
   /** Tạo URL thanh toán VNPay cho đơn hàng. Mỗi lần gọi sẽ có timestamp mới

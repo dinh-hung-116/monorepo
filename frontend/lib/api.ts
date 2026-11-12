@@ -150,8 +150,7 @@ export const cancelPayment = async (orderCode: string, accessToken: string) => {
         : "Không thể hủy thanh toán.",
     );
   }
-  const data = (await res.json()) as { order: ApiOrder };
-  return data.order;
+  return (await res.json()) as ApiOrder;
 };
 
 export const createPayment = async (
