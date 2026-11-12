@@ -1,173 +1,198 @@
-# BrewLite Monorepo (Công nghệ Phần mềm)
+# BrewLite
 
-Ứng dụng đặt đồ uống không dùng tiền mặt **BrewLite** với kiến trúc Monorepo gồm:
-- `frontend`: Next.js (App Router, TypeScript, TailwindCSS)
-- `backend`: NestJS (REST API, Prisma + PostgreSQL, `class-validator`, JWT Passport, `bcrypt`)
+Ứng dụng đặt đồ uống không dùng tiền mặt **BrewLite**, viết theo mô hình monorepo:
+
+| Thư mục | Công nghệ | Cổng |
+| --- | --- | --- |
+| `frontend/` | Next.js 16 (App Router, TypeScript, TailwindCSS, React 19) | 3000 |
+| `backend/` | NestJS 12 (REST API, Prisma 6 + PostgreSQL, JWT, `class-validator`, `bcrypt`) | 3001 |
+| `docker-compose.yml` | PostgreSQL 18 + backend + frontend (project `brewlite-stack`) | 5434 → 5432 |
+
+Tính năng chính: xem menu và chi tiết món, chọn size/topping, giỏ hàng, đặt đơn (giữ chỗ nguyên liệu theo tồn kho thật), thanh toán VNPay sandbox, mã khuyến mãi, tích điểm, huỷ đơn, kiểm kho cho nhân viên, tự huỷ đơn `PENDING` quá hạn.
 
 ---
 
-## Tổng hợp các Task đã hoàn thiện (Sprint 1 & Sprint 2)
+## 1. Yêu cầu
 
-### Sprint 1 – Task 1, 2, 3, 4
-
-| Mã | Việc | File |
-| --- | --- | --- |
-| 1 | Khởi tạo Monorepo (`frontend` Next.js + `backend` NestJS), `GET /` trả `"Hello World!"`, `.env.example`, `README.md` | `frontend/`, `backend/`, `.env.example`, `README.md` |
-| 2.1 | Seed 8 sản phẩm và dữ liệu liên kết cho toàn bộ bảng (Prisma + PostgreSQL) | `backend/prisma/schema.prisma`, `backend/prisma/migrations/`, `backend/prisma/seed.ts` |
-| 2.2 | `GET /products`, `GET /products/:id` (404 khi không có, 400 khi id không phải số) | `backend/src/products/` |
-| 2.3 | Kiểm thử API sản phẩm (Unit + E2E), thời gian phản hồi `< 500ms` | `backend/test/products.e2e-spec.ts` |
-| 3.1 | Service gọi API: timeout 8 giây, phân biệt 404 / lỗi máy chủ / mất kết nối | `frontend/lib/api.ts` (test: `api.test.ts`) |
-| 3.2 | Giao diện lưới sản phẩm (hình, tên, giá) | `frontend/app/page.tsx` |
-| 3.3 | Trạng thái loading / empty / lỗi (có nút Thử lại) | `frontend/app/page.tsx` |
-| 4.1 | Giao diện trang chi tiết sản phẩm | `frontend/app/products/[id]/page.tsx` |
-| 4.2 | Chọn size (S/M/L), topping và số lượng | `frontend/components/ProductOptions.tsx`, `frontend/lib/options.ts` |
-| 4.3 | Tính giá theo tùy chọn size + topping + số lượng | `frontend/lib/pricing.ts` (test: `pricing.test.ts`) |
-
-### Sprint 2 – Task 5, 6, 7
-
-| Mã | Việc | File |
-| --- | --- | --- |
-| 5.1 | Store giỏ hàng (React Context + `localStorage` + helper `lib/cart.ts`) | `frontend/context/CartContext.tsx`, `frontend/lib/cart.ts` (test: `cart.test.ts`) |
-| 5.2 | Giao diện giỏ hàng: thêm/sửa số lượng/xóa món hoặc xóa tất cả | `frontend/components/CartView.tsx`, `frontend/app/cart/page.tsx` |
-| 5.3 | Tự tính tổng tiền và hiển thị badge số lượng trên thanh điều hướng | `frontend/components/Header.tsx`, `frontend/context/CartContext.tsx` |
-| 6.1 | DTO và validate giỏ hàng đầu vào bằng `class-validator` (`ValidationPipe`) | `backend/src/orders/dto/create-order.dto.ts`, `backend/src/main.ts` |
-| 6.2 | Entity & Prisma model `orders` / `order_items`, lưu đơn trạng thái `PENDING` | `backend/prisma/schema.prisma`, `backend/src/orders/entities/order.entity.ts`, `backend/src/orders/orders.service.ts` |
-| 6.3 | Controller `POST /orders` trả mã đơn (`orderCode`), `GET /orders/me`, `GET /orders/:code` | `backend/src/orders/orders.controller.ts` |
-| 6.4 | Kiểm thử API đặt đơn (Unit + E2E) | `backend/src/orders/orders.controller.spec.ts`, `backend/src/orders/orders.service.spec.ts`, `backend/test/app.e2e-spec.ts` |
-| 7.1 | Entity & Prisma model `users`, băm mật khẩu bằng `bcrypt` | `backend/prisma/schema.prisma`, `backend/src/auth/auth.service.ts` (test: `auth.service.spec.ts`) |
-| 7.2 | API `POST /auth/register`, `POST /auth/login`, `GET /auth/me` và phát JWT | `backend/src/auth/auth.controller.ts` (test: `auth.controller.spec.ts`) |
-| 7.3 | `JwtStrategy` & `JwtAuthGuard` bảo vệ route đặt đơn `POST /orders` | `backend/src/auth/jwt.strategy.ts`, `backend/src/auth/jwt-auth.guard.ts` |
-| 7.4 | Form đăng ký / đăng nhập (Frontend) và đồng bộ phiên đăng nhập | `frontend/context/AuthContext.tsx`, `frontend/components/AuthForm.tsx`, `frontend/app/login/page.tsx`, `frontend/app/register/page.tsx` |
+- **Node.js 22** (Dockerfile dùng `node:22-bookworm-slim`) và npm.
+- **PostgreSQL 18** (hoặc 16+) nếu chạy không Docker — hoặc chỉ cần Docker để chạy riêng DB.
+- Docker Desktop nếu chạy bằng container.
 
 ---
 
-## Hướng dẫn cài đặt và chạy dự án
+## 2. Chạy bằng Docker (khuyến nghị)
 
-### 1. Khởi tạo PostgreSQL (Tùy chọn – có cơ chế fallback dữ liệu mẫu khi chạy local không cần Docker)
+Toàn bộ stack (DB + backend + frontend) nằm trong `docker-compose.yml`, project name `brewlite-stack`.
+
 ```bash
-docker run -d --name brewlite-db -e POSTGRES_USER=brewlite -e POSTGRES_PASSWORD=brewlite -e POSTGRES_DB=brewlite -p 5432:5432 postgres:16-alpine
+docker compose up -d --build      # build image và chạy 3 service
+docker compose ps                 # xem trạng thái
+docker compose logs -f backend    # xem log backend
 ```
 
-### 2. Chạy Backend (NestJS – Port 3001)
+| Service | Địa chỉ | Ghi chú |
+| --- | --- | --- |
+| Frontend | http://localhost:3000 | Next.js production (`next start`) |
+| Backend | http://localhost:3001 | tự chạy `prisma migrate deploy` khi khởi động |
+| PostgreSQL | `localhost:5434` | user/pass/db: `brewlite` / `brewlite` / `brewlite_db` |
+
+- Dữ liệu DB nằm trong volume riêng **`brewlite_stack_db_data`**, tách khỏi mọi container/DB khác trên máy.
+- Cổng 5434 ở host để không đụng PostgreSQL cài sẵn (5432) hay stack `brewlite` cũ (5433).
+
+### Nạp dữ liệu mẫu vào container
+
+```bash
+docker compose run --rm backend npm run db:seed
+```
+
+### Các lệnh thường dùng
+
+```bash
+docker compose down                    # dừng, giữ nguyên dữ liệu
+docker compose down -v                 # dừng và XOÁ volume (mất dữ liệu)
+docker compose up -d --build backend   # build lại riêng backend
+docker compose up -d --build frontend  # build lại riêng frontend
+docker compose exec db psql -U brewlite -d brewlite_db   # vào psql trong container
+```
+
+> **Lưu ý:** container chiếm cổng 3000/3001, nên phải tắt dev server local (`next dev`, `nest start --watch`) trước khi `docker compose up`. Ngược lại, muốn chạy dev thì `docker compose down` trước.
+
+### Cấu hình
+
+Các biến trong `.env` ở thư mục gốc được Docker Compose đọc (xem `.env.example`):
+
+| Biến | Mặc định |
+| --- | --- |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `brewlite` / `brewlite` / `brewlite_db` |
+| `JWT_SECRET` | `brewlite_super_secret_jwt_key_2026` |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3001` (nhúng vào JS lúc **build**, đổi thì phải build lại frontend) |
+
+---
+
+## 3. Chạy không dùng Docker
+
+### 3.1. Chuẩn bị PostgreSQL
+
+Có DB tên `brewlite` (không cần Docker cũng được, ví dụ PostgreSQL cài sẵn ở cổng 5432). Nếu muốn dùng Docker chỉ cho DB:
+
+```bash
+docker run -d --name brewlite-db \
+  -e POSTGRES_USER=brewlite -e POSTGRES_PASSWORD=brewlite -e POSTGRES_DB=brewlite \
+  -p 5432:5432 postgres:18-alpine
+```
+
+### 3.2. Backend (cổng 3001)
+
 ```bash
 cd backend
-cp .env.example .env          # Windows PowerShell: Copy-Item .env.example .env
-npm install
-npm run db:migrate            # nếu dùng PostgreSQL
-npm run db:seed               # seed products, users, orders, inventory, promotions và payments
-npm run start:dev
+cp .env.example .env      # Windows PowerShell: Copy-Item .env.example .env
+npm install               # postinstall tự chạy prisma generate
+npm run db:migrate        # prisma migrate deploy – tạo toàn bộ bảng
+npm run db:seed           # nạp dữ liệu mẫu (xem mục 4)
+npm run start:dev         # chế độ watch
 ```
 
-Tài khoản mẫu sau khi seed đều dùng mật khẩu `BrewLite123!`: `customer@brewlite.test`,
-`staff@brewlite.test` và `admin@brewlite.test`. Seed có thể chạy lại an toàn mà không
-tạo bản ghi trùng.
+Sửa `backend/.env` cho đúng máy:
 
-### 3. Chạy Frontend (Next.js – Port 3000)
+| Biến | Ý nghĩa |
+| --- | --- |
+| `DATABASE_URL` | chuỗi kết nối PostgreSQL, ví dụ `postgresql://postgres:matkhau@localhost:5432/brewlite` |
+| `PORT` | cổng API (mặc định 3001) |
+| `CORS_ORIGIN` | origin của frontend (mặc định `http://localhost:3000`) |
+| `JWT_SECRET` | khoá ký JWT |
+| `vnpay.tmn-code`, `vnpay.hash-secret`, `vnpay.payment-url` | thông tin VNPay sandbox cho luồng thanh toán |
+
+### 3.3. Frontend (cổng 3000)
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Truy cập ứng dụng tại `http://localhost:3000` (hoặc `/cart`, `/login`, `/register`).
 
-### 4. Chạy cả 3 phần bằng Docker Compose
+Tạo `frontend/.env.local` nếu API không ở cổng mặc định:
 
-Stack gồm 3 service độc lập: `db` (PostgreSQL), `backend` (NestJS), `frontend` (Next.js).
-
-```bash
-docker compose up -d --build     # lần đầu / khi code thay đổi
-docker compose ps                # xem trạng thái
-docker compose logs -f backend   # xem log
+```
+NEXT_PUBLIC_API_URL=http://localhost:3001
 ```
 
-| Service | Địa chỉ |
-| --- | --- |
-| Frontend | `http://localhost:3000` |
-| Backend | `http://localhost:3001` |
-| PostgreSQL | `localhost:5434` (user/pass/db: `brewlite` / `brewlite` / `brewlite_db`) |
-
-- Backend tự chạy `prisma migrate deploy` khi container khởi động.
-- Dữ liệu DB nằm trong volume riêng `brewlite_stack_db_data` (không dùng chung với container nào khác).
-- Seed thêm dữ liệu mẫu: `docker compose run --rm backend npm run db:seed`.
-- Đổi port/cấu hình DB: sửa biến `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, hoặc đặt chúng trong file `.env` ở thư mục gốc.
-- Dừng: `docker compose down` (giữ dữ liệu) hoặc `docker compose down -v` (xoá luôn volume).
+Mở http://localhost:3000 (các trang: `/cart`, `/login`, `/register`, `/orders`, `/products/[id]`).
 
 ---
 
-## Kiểm thử & Build
+## 4. Dữ liệu mẫu lấy ở đâu?
+
+**Nguồn duy nhất:** [`backend/prisma/seed.ts`](backend/prisma/seed.ts), chạy bằng `npm run db:seed`
+(`prisma db seed` → `tsx prisma/seed.ts`). Cấu trúc bảng do `backend/prisma/migrations/` quy định.
+
+Seed tạo (dùng `upsert`, chạy lại nhiều lần **không** tạo bản ghi trùng và **không** ghi đè tồn kho đang có):
+
+- **8 đồ uống**: Cà phê đen, Cà phê sữa, Bạc xỉu, Latte, Trà sữa trân châu, Trà đào, Matcha Latte, Chocolate đá.
+- **13 nguyên liệu** kèm tồn kho khởi tạo: Cà phê rang xay, Sữa đặc, Sữa tươi, Trà đen, Đào ngâm, Bột matcha, Bột cacao, Đường, Đá, Trân châu, Pudding, Kem cheese, Ly nhựa.
+- **Công thức 8 món** (`recipe_ingredients`, định lượng cho size M) và **hệ số size** S/M/L = 0.8 / 1.0 / 1.25 trong bảng `recipes` → số ly bán được = `min(tồn kho / (định lượng × hệ số size + topping))`.
+- **3 topping** + công thức tiêu hao: Trân châu (50 g/phần), Pudding (60 g), Kem cheese (40 g).
+- **3 tài khoản**, mật khẩu chung `BrewLite123!`:
+  `customer@brewlite.test` (CUSTOMER), `staff@brewlite.test` (STAFF), `admin@brewlite.test` (ADMIN).
+- **2 mã khuyến mãi**: `WELCOME10` (giảm 10%, đơn từ 50.000đ, tối đa 30.000đ) và `FREESHIP` (giảm 15.000đ, đơn từ 80.000đ).
+- **2 đơn mẫu** `#1001`, `#1002` kèm payment và điểm tích luỹ để xem trước trang lịch sử đơn.
+
+Muốn xem/sửa dữ liệu trực tiếp: `cd backend && npx prisma studio` (http://localhost:5555).
+
+> **Cảnh báo:** chỉ chạy `db:seed` trên DB trắng hoặc DB đúng bộ dữ liệu này. Trên DB đang có dữ liệu thật, seed vẫn có thể thêm user/đơn mẫu nếu chúng chưa tồn tại.
+
+---
+
+## 5. API chính
+
+| Nhóm | Endpoint |
+| --- | --- |
+| Sản phẩm | `GET /products`, `GET /products/:id` |
+| Topping | `GET /toppings` |
+| Tồn kho | `GET /inventory/availability`, `GET /inventory/products/:productId/availability` (công khai) |
+| Kho (STAFF/ADMIN) | `GET /inventory/ingredients`, `PATCH /inventory/ingredients/:id`, `POST /inventory/ingredients/:id/restock` |
+| Xác thực | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` |
+| Đơn hàng | `POST /orders` (JWT), `POST /orders/validate-promotion`, `GET /orders/me` (JWT), `GET /orders/:code`, `POST /orders/:code/cancel` (JWT) |
+| Thanh toán | `POST /api/payment/create/:orderId` (hỗ trợ `Idempotency-Key`), `POST /api/payment/cancel/:orderCode` (JWT), `GET /api/payment/return` (VNPay redirect) |
+
+Luồng đặt đơn: `POST /orders` kiểm tra và **giữ chỗ nguyên liệu trong cùng transaction** với việc tạo đơn (optimistic locking trên `ingredients.version`), nên nhiều khách đặt cùng lúc không bán vượt kho; thiếu hàng trả `409` kèm nguyên liệu còn thiếu. Đơn `PENDING` quá `ORDER_HOLD_MINUTES` (mặc định 15 phút) bị tự huỷ và trả kho.
+
+---
+
+## 6. Kiểm thử & build
 
 ```bash
-# Backend: Unit test, E2E test, Lint, Build
+# Backend
 cd backend
-npm test
-npm run test:e2e
-npm run lint
-npm run build
+npm test           # unit test (vitest)
+npm run test:e2e   # e2e (cần DB sẵn sàng)
+npm run lint       # oxlint --type-aware
+npm run build      # nest build
 
-# Frontend: Unit test, Lint, Build
+# Frontend
 cd frontend
-npm test
-npm run lint
-npm run build
+npm test           # node --test lib/*.test.ts
+npm run lint       # eslint
+npm run build      # next build
 ```
-Mau test idempotency key
-Bước 1: Lấy token mới
-Nếu email test123@example.com đã đăng ký rồi thì đăng nhập thay vì đăng ký:
 
-Method: POST
-URL: http://localhost:3001/auth/login
-Headers: Content-Type: application/json
-Body → raw → JSON:
-{
-  "email": "test123@example.com",
-  "password": "Test1234"
-}
-Hoặc nếu chưa đăng ký / quên mật khẩu, đăng ký email mới:
+---
 
-Method: POST
-URL: http://localhost:3001/auth/register
-Body:
-{
-  "email": "test456@example.com",
-  "password": "Test1234",
-  "name": "Test User"
-}
-→ Send → trong response tìm "accessToken" → copy toàn bộ chuỗi (rất dài, bắt đầu bằng eyJ...).
+## 7. Xử lý sự cố thường gặp
 
-Bước 2: Tạo đơn hàng
-Method: POST
-URL: http://localhost:3001/orders
-Headers:
-Content-Type: application/json
-Authorization: Bearer + dán token vào (chú ý có dấu cách sau Bearer)
-Body:
-{
-  "items": [
-    {
-      "productId": "1",
-      "productName": "Cà phê đen",
-      "size": "M",
-      "toppings": [],
-      "qty": 1,
-      "unitPrice": 30000
-    }
-  ]
-}
-→ Send → copy orderCode trong response (dạng #1186).
+| Hiện tượng | Nguyên nhân / cách xử lý |
+| --- | --- |
+| `EPERM ... query_engine-windows.dll.node` khi `prisma generate` | Còn tiến trình Node đang giữ file Prisma engine. Tắt `nest start --watch` / `node dist/main` rồi chạy lại. |
+| `EADDRINUSE` khi `docker compose up` | Cổng 3000/3001 đang bị dev server giữ. `docker compose down` hoặc tắt dev server. |
+| `P3018 ... relation "products" already exists` khi backend khởi động | DB có schema cũ nhưng thiếu lịch sử migration. Cách sạch: `docker compose down -v` rồi `up -d --build`; hoặc baseline bằng `npx prisma migrate resolve --applied <tên-migration>`. |
+| `P3008 ... already recorded as applied` | Migration đó đã có trong DB — bỏ qua, không cần chạy lại. |
+| `npm error ECONNRESET` khi build Docker | Lỗi mạng khi `npm ci`; build lại (nên build tuần tự `docker compose build backend` rồi `frontend`) hoặc kiểm tra proxy/DNS của Docker Desktop. |
+| Đã đổi `NEXT_PUBLIC_API_URL` nhưng frontend vẫn gọi URL cũ | Biến này nhúng lúc build: `docker compose up -d --build frontend`. |
+| Quên mật khẩu tài khoản mẫu | Mật khẩu chung `BrewLite123!`, hoặc đăng ký tài khoản mới qua `/register`. |
 
-Bước 3: Gọi payment 2 lần cùng key
-Method: POST
-URL: http://localhost:3001/api/payment/create/%23 + số đơn. Ví dụ orderCode là #1186 → URL là:
-http://localhost:3001/api/payment/create/%231186
-Headers:
-Authorization: Bearer + token
-Idempotency-Key: test-key-001
-Body: None
-→ Send, sau đó Send lần 2 (click nút Send lại, hoặc duplicate request).
+---
 
-Cả 2 lần phải trả 201 + paymentUrl.
+## 8. Ghi chú
 
-Bước 4: Kiểm tra DB
-cd C:\monorepo\backend
-npx prisma studio
-Mở http://localhost:5555 → bảng payments → filter idempotencyKey = test-key-001 → phải thấy đúng 1 row.
+- `.env` **không** được commit; chỉ commit `.env.example`. Nếu file `.env` từng bị đẩy lên remote, hãy đổi `JWT_SECRET` và các khoá VNPay.
+- Mọi thay đổi cấu trúc DB phải đi kèm migration mới trong `backend/prisma/migrations/`, không sửa migration đã áp dụng.
+- Backend có cơ chế fallback lưu đơn ra file khi mất kết nối DB, chỉ dùng cho môi trường dev.
