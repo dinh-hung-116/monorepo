@@ -559,7 +559,7 @@ export class OrdersService {
       if (row.user_id === null || String(row.user_id) !== String(userId)) {
         throw new ForbiddenException('Bạn không có quyền huỷ đơn hàng này');
       }
-      if (row.status !== 'PENDING' && row.status !== 'PAYMENT_FAILED') {
+      if (row.status !== 'PENDING' && row.status !== 'PAYMENT_FAILED' && row.status !== 'PAID') {
         throw new ConflictException(
           `Không thể huỷ đơn ở trạng thái ${row.status}`,
         );

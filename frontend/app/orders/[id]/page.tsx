@@ -50,13 +50,15 @@ function OrderDetail() {
   } | null>(null);
 
   useEffect(() => {
-    getOrderByCode(decodeURIComponent(id))
+    if (!accessToken) return;
+
+    getOrderByCode(decodeURIComponent(id), accessToken)
       .then((loadedOrder) => {
         setOrder(loadedOrder);
         setState("ready");
       })
       .catch(() => setState("error"));
-  }, [id]);
+  }, [id, accessToken]);
 
   useEffect(() => {
     if (!toast) return;
@@ -102,11 +104,11 @@ function OrderDetail() {
   };
 
   const handleRetryPayment = async () => {
-    if (!order || retrying) return;
+    if (!order || !accessToken || retrying) return;
     setRetrying(true);
     setCancelError(null);
     try {
-      const { paymentUrl } = await createPayment(order.orderCode);
+      const { paymentUrl } = await createPayment(order.orderCode, accessToken);
       window.location.href = paymentUrl;
     } catch (error) {
       const message =

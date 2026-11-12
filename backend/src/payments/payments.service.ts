@@ -10,6 +10,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Prisma } from '@prisma/client';
+import { OrderStatus } from '@prisma/client';
 
 type OrderRecord = {
   id: number;
@@ -90,6 +91,13 @@ export class PaymentsService {
     })) as OrderRecord | null;
     if (!order) {
       throw new NotFoundException('Order not found');
+    }
+
+    if (order.status === OrderStatus.PAYMENT_FAILED) {
+      await this.prisma.orders.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.PENDING },
+      });
     }
 
     // ── Kiểm tra Idempotency-Key ──────────────────────────────────────────

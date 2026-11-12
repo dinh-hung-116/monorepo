@@ -187,7 +187,10 @@ export default function CartView() {
         throw new Error(msg);
       }
 
-      const { paymentUrl } = await createPayment(order.orderCode);
+      if (!accessToken) {
+        throw new Error("Vui lòng đăng nhập để thanh toán.");
+      }
+      const { paymentUrl } = await createPayment(order.orderCode, accessToken);
       window.location.href = paymentUrl;
       setSubmitting(true);
       setOrderError(null);

@@ -7,6 +7,7 @@ import { ApiError, getOrderByCode } from '@/lib/api';
 import { formatVnd } from '@/lib/pricing';
 import type { ApiOrder, ApiOrderStatus } from '@/lib/types';
 import { useCart } from '@/context/CartContext';
+import { useAuth } from '@/context/AuthContext';
 
 const statusLabels: Record<ApiOrderStatus, string> = {
   PENDING: 'Chờ thanh toán',
@@ -47,14 +48,15 @@ function OrderConfirmation() {
 
   // Xóa giỏ hàng khi thanh toán thành công; ref để chỉ chạy 1 lần mỗi đơn.
   const { clearCart } = useCart();
+  const { accessToken } = useAuth();
   const clearedRef = useRef(false);
 
   useEffect(() => {
-    if (!orderCode) return;
+    if (!orderCode || !accessToken) return;
 
     let cancelled = false;
     setLoading(true);
-    getOrderByCode(orderCode)
+    getOrderByCode(orderCode, accessToken)
       .then((data) => {
         if (!cancelled) {
           setOrder(data);
@@ -83,7 +85,7 @@ function OrderConfirmation() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderCode]);
+  }, [orderCode, accessToken]);
 
   if (!orderCode) {
     return (

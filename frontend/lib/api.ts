@@ -99,8 +99,24 @@ export const validatePromotion = async (code: string, subtotal: number) => {
 };
 
 /** GET /orders/:code – thông tin một đơn hàng theo mã đơn. */
-export const getOrderByCode = async (orderCode: string) => {
-  const order = await get<ApiOrder>(`/orders/${encodeURIComponent(orderCode)}`);
+export const getOrderByCode = async (orderCode: string, accessToken: string) => {
+  const req = await fetch(
+    `${API_URL}/orders/${encodeURIComponent(orderCode)}`,
+    {
+      cache: "no-store",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!req.ok) {
+    throw new ApiError(
+      req.status,
+      req.status === 401
+        ? "Phiên đăng nhập đã hết hạn."
+        : "Không tải được thông tin đơn hàng.",
+    );
+  }
+  const order = (await req.json()) as ApiOrder;
   return {
     ...order,
     total:
@@ -118,7 +134,7 @@ export const getOrderByCode = async (orderCode: string) => {
 
 export const cancelPayment = async (orderCode: string, accessToken: string) => {
   const res = await fetch(
-    `${API_URL}/api/payment/cancel/${encodeURIComponent(orderCode)}`,
+    `${API_URL}/orders/${encodeURIComponent(orderCode)}/cancel`,
     {
       method: "POST",
       cache: "no-store",
@@ -140,15 +156,19 @@ export const cancelPayment = async (orderCode: string, accessToken: string) => {
 
 export const createPayment = async (
   orderCode: string,
-  idempotencyKey = crypto.randomUUID(),
+  accessToken: string,
 ) => {
+  const idempotencyKey = crypto.randomUUID();
   const res = await fetch(
     `${API_URL}/api/payment/create/${encodeURIComponent(orderCode)}`,
     {
       method: "POST",
       cache: "no-store",
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { "Idempotency-Key": idempotencyKey },
+      headers: {
+        "Idempotency-Key": idempotencyKey,
+        Authorization: `Bearer ${accessToken}`
+      },
     },
   );
   if (!res.ok) {

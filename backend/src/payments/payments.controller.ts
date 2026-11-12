@@ -17,6 +17,7 @@ import { PaymentsService } from './payments.service.js';
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Post('/create/:orderId')
   async createPayment(
     @Param('orderId') orderId: string,
