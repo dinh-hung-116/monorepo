@@ -1,15 +1,24 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { InventoryService } from '../inventory/inventory.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { OrderStatus } from '@prisma/client';
 import { CreateOrderDto } from './dto/create-order.dto.js';
-import { DrinkSize, Order, OrderItem } from './entities/order.entity.js';
+import {
+  DrinkSize,
+  Order,
+  OrderItem,
+  OrderStatus,
+} from './entities/order.entity.js';
 
 export interface OrderItemRow {
   id?: number;
@@ -78,6 +87,17 @@ interface LocalOrdersDb {
   orders: Order[];
 }
 
+/** Một dòng đơn đã tính tiền — dùng chung cho việc ghi DB và giữ chỗ nguyên liệu. */
+export interface CalculatedOrderItem {
+  productId: string;
+  productName: string;
+  size: DrinkSize;
+  toppings: string[];
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
 const LOCAL_ORDERS_PATH = resolve(process.cwd(), '.data', 'orders-db.json');
 
 function isMissingTableError(err: unknown): boolean {
@@ -90,9 +110,8 @@ function isMissingTableError(err: unknown): boolean {
 }
 
 function isDatabaseUnavailableError(err: unknown): boolean {
-  if (err instanceof BadRequestException || err instanceof NotFoundException) {
-    return false;
-  }
+  // Lỗi nghiệp vụ (400/403/404/409…) không phải lỗi kết nối DB nên không được rơi xuống fallback.
+  if (err instanceof HttpException) return false;
   const name = (err as { name?: string })?.name ?? '';
   const code = (err as { code?: string })?.code ?? '';
   const message = (err as { message?: string })?.message ?? '';
@@ -125,7 +144,10 @@ export class OrdersService {
   private readonly fallbackOrders: Map<string, Order> = new Map();
   private orderSequence = 1001;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly inventory?: InventoryService,
+  ) {
     this.loadFallbackFromDisk();
   }
 
@@ -197,15 +219,7 @@ export class OrdersService {
     parsedUserId: number | null,
     total: number,
     dto: CreateOrderDto,
-    calculatedItems: Array<{
-      productId: string;
-      productName: string;
-      size: DrinkSize;
-      toppings: string[];
-      qty: number;
-      unitPrice: number;
-      lineTotal: number;
-    }>,
+    calculatedItems: CalculatedOrderItem[],
     promotionId: number | null,
     discountAmount: number,
   ): Promise<Order> {
@@ -242,68 +256,99 @@ export class OrdersService {
     const seq = Math.max(1001 + lastOrders.length, 1000 + lastId + 1);
     const orderCode = `#${seq}`;
 
-    // 3. Ưu tiên dùng raw SQL khi chạy thực tế (có $queryRawUnsafe) để tránh lỗi nhị phân JSONB 08P01 của Prisma
-    if (typeof (this.prisma as any)?.$queryRawUnsafe === 'function') {
-      // Phải khai báo "updated_at" tường minh vì cột này dùng @updatedAt trong Prisma —
-      // Prisma chỉ điền tự động khi dùng ORM client, không phải khi dùng raw SQL.
-      // Nếu bỏ qua, PostgreSQL sẽ ném 23502 (not-null violation).
-      const orderRows = await (this.prisma as any).$queryRawUnsafe(
-        `INSERT INTO "orders" ("order_code", "user_id", "status", "total_price", "promotion_id", "discount_amount", "updated_at")
-         VALUES ($1, $2, $3::"OrderStatus", $4, $5, $6, NOW())
-         RETURNING id, order_code, user_id, status, total_price, created_at, updated_at`,
-        orderCode,
-        validUserId,
-        OrderStatus.PENDING,
-        total,
-        promotionId,
-        discountAmount,
-      );
+    // 3. Kiểm tra trước (chỉ đọc) để báo 409 sớm khi chắc chắn thiếu hàng.
+    const stockPlan = this.inventory
+      ? await this.inventory.planFor(calculatedItems)
+      : [];
+    if (this.inventory) await this.inventory.assertPlanAvailable(stockPlan);
 
-      const insertedOrder = orderRows[0];
-      const createdItems: OrderItemRow[] = [];
+    const rawClient = this.prisma as any;
+    const canUseTransaction =
+      typeof rawClient?.$queryRawUnsafe === 'function' &&
+      typeof rawClient?.$transaction === 'function';
 
-      for (const item of calculatedItems) {
-        const parsedProdId = /^\d+$/.test(String(item.productId))
-          ? Number(item.productId)
-          : null;
+    // 4. Ghi đơn + giữ chỗ nguyên liệu trong CÙNG một transaction: hoặc cả hai cùng thành công,
+    //    hoặc rollback sạch (không còn đơn PENDING thiếu hàng như cách xoá bù trừ trước đây).
+    if (canUseTransaction) {
+      const orderWithItems: OrderRowWithItems = await rawClient.$transaction(
+        async (tx: any) => {
+          // Phải khai báo "updated_at" tường minh vì cột này dùng @updatedAt trong Prisma —
+          // Prisma chỉ điền tự động khi dùng ORM client, không phải khi dùng raw SQL.
+          // Nếu bỏ qua, PostgreSQL sẽ ném 23502 (not-null violation).
+          // Mã đơn sinh từ id ngay trong transaction. Mã tạm là UUID duy nhất nên 20 request
+          // đồng thời không thể trùng nhau như khi đoán số từ MAX(id) ở ngoài transaction.
+          const orderRows = await tx.$queryRawUnsafe(
+            `INSERT INTO "orders" ("order_code", "user_id", "status", "total_price", "promotion_id", "discount_amount", "updated_at")
+         VALUES ('tmp-' || gen_random_uuid()::text, $1, $2::"OrderStatus", $3, $4, $5, NOW())
+         RETURNING id, user_id, status, total_price, created_at, updated_at`,
+            validUserId,
+            'PENDING',
+            total,
+            promotionId,
+            discountAmount,
+          );
 
-        const itemRows = await (this.prisma as any).$queryRawUnsafe(
-          `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "price", "quantity", "subtotal")
+          const insertedOrder = orderRows[0];
+          const finalOrderCode = `#${1000 + Number(insertedOrder.id)}`;
+          await tx.$executeRawUnsafe(
+            `UPDATE "orders" SET "order_code" = $1 WHERE "id" = $2`,
+            finalOrderCode,
+            insertedOrder.id,
+          );
+          insertedOrder.order_code = finalOrderCode;
+          const createdItems: OrderItemRow[] = [];
+
+          for (const item of calculatedItems) {
+            const parsedProdId = /^\d+$/.test(String(item.productId))
+              ? Number(item.productId)
+              : null;
+
+            const itemRows = await tx.$queryRawUnsafe(
+              `INSERT INTO "order_items" ("order_id", "product_id", "product_name", "size", "price", "quantity", "subtotal")
            VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING id, order_id, product_id, product_name, size, price, quantity, subtotal`,
-          insertedOrder.id,
-          parsedProdId,
-          item.productName,
-          item.size,
-          item.unitPrice,
-          item.qty,
-          item.lineTotal,
-        );
+              insertedOrder.id,
+              parsedProdId,
+              item.productName,
+              item.size,
+              item.unitPrice,
+              item.qty,
+              item.lineTotal,
+            );
 
-        const insertedItem = itemRows[0] as OrderItemRow;
-        const toppings = item.toppings ?? [];
-        for (const toppingName of toppings) {
-          await (this.prisma as any).$queryRawUnsafe(
-            `INSERT INTO "order_item_toppings" ("order_item_id", "topping_name", "price")
+            const insertedItem = itemRows[0] as OrderItemRow;
+            const toppings = item.toppings ?? [];
+            for (const toppingName of toppings) {
+              await tx.$queryRawUnsafe(
+                `INSERT INTO "order_item_toppings" ("order_item_id", "topping_name", "price")
              VALUES ($1, $2, $3)`,
-            insertedItem.id,
-            toppingName,
-            0,
-          );
-        }
+                insertedItem.id,
+                toppingName,
+                0,
+              );
+            }
 
-        createdItems.push({
-          ...insertedItem,
-          item_toppings: toppings.map((topping_name) => ({ topping_name })),
-        });
-      }
+            createdItems.push({
+              ...insertedItem,
+              item_toppings: toppings.map((topping_name) => ({ topping_name })),
+            });
+          }
 
-      const rowWithItems: OrderRowWithItems = {
-        ...insertedOrder,
-        items: createdItems,
-      };
+          // Giữ chỗ ngay trong transaction: thiếu hàng thì đơn vừa insert cũng bị rollback.
+          if (this.inventory) {
+            await this.inventory.reserveInTransaction(
+              tx,
+              insertedOrder.id,
+              stockPlan,
+            );
+          }
 
-      return this.rowToOrder(rowWithItems, userId);
+          return { ...insertedOrder, items: createdItems } as OrderRowWithItems;
+        },
+        { timeout: 15_000, maxWait: 5_000 },
+      );
+
+      return this.rowToOrder(orderWithItems, userId);
     }
 
     // Fallback cho môi trường unit test (sử dụng Prisma delegate mock)
@@ -363,6 +408,8 @@ export class OrdersService {
       (sum, item) => sum + item.lineTotal,
       0,
     );
+
+    // Mã khuyến mãi (nếu có): tính giảm giá một lần rồi truyền tiếp xuống bước ghi đơn.
     let promotionId: number | null = null;
     let discountAmount = 0;
     const promotionCode = dto.promotionCode?.trim().toUpperCase();
@@ -372,6 +419,7 @@ export class OrdersService {
       discountAmount = validated.discountAmount;
     }
     const payableTotal = total - discountAmount;
+
     const parsedUserId = /^\d+$/.test(String(userId)) ? Number(userId) : null;
 
     try {
@@ -452,6 +500,7 @@ export class OrdersService {
     }
   }
 
+  /** Kiểm tra mã khuyến mãi và tính số tiền được giảm cho tạm tính của giỏ. */
   async validatePromotion(code: string, subtotal: number) {
     const promotion = await this.prisma.promotions.findFirst({
       where: {
@@ -489,6 +538,110 @@ export class OrdersService {
       discountAmount,
       total: subtotal - discountAmount,
     };
+  }
+
+  /**
+   * Khách tự huỷ đơn đang chờ thanh toán (hoặc vừa thanh toán lỗi) và trả lại nguyên liệu đã giữ chỗ.
+   * Chỉ chủ đơn mới huỷ được; đơn đã thanh toán/xong thì không huỷ qua đường này.
+   */
+  async cancelOrder(orderCode: string, userId: string): Promise<Order> {
+    const normalizedCode = orderCode.startsWith('#')
+      ? orderCode
+      : `#${orderCode}`;
+
+    try {
+      const row = await this.prisma.orders.findUnique({
+        where: { order_code: normalizedCode },
+      });
+      if (!row) {
+        throw new NotFoundException(`Không tìm thấy đơn hàng ${orderCode}`);
+      }
+      if (row.user_id === null || String(row.user_id) !== String(userId)) {
+        throw new ForbiddenException('Bạn không có quyền huỷ đơn hàng này');
+      }
+      if (row.status !== 'PENDING' && row.status !== 'PAYMENT_FAILED') {
+        throw new ConflictException(
+          `Không thể huỷ đơn ở trạng thái ${row.status}`,
+        );
+      }
+
+      await this.prisma.orders.update({
+        where: { id: row.id },
+        data: { status: 'CANCELLED' },
+      });
+      await this.inventory?.releaseForOrder(row.id);
+
+      return await this.findByCode(normalizedCode);
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
+      if (!isDatabaseUnavailableError(err)) throw err;
+    }
+
+    this.loadFallbackFromDisk();
+    const found = Array.from(this.fallbackOrders.values()).find(
+      (order) => order.orderCode === normalizedCode,
+    );
+    if (!found) {
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderCode}`);
+    }
+    if (String(found.userId) !== String(userId)) {
+      throw new ForbiddenException('Bạn không có quyền huỷ đơn hàng này');
+    }
+    if (found.status !== 'PENDING' && found.status !== 'PAYMENT_FAILED') {
+      throw new ConflictException(
+        `Không thể huỷ đơn ở trạng thái ${found.status}`,
+      );
+    }
+
+    const cancelled: Order = { ...found, status: 'CANCELLED' };
+    this.fallbackOrders.set(cancelled.id, cancelled);
+    this.saveFallbackToDisk();
+    return cancelled;
+  }
+
+  /**
+   * Huỷ các đơn PENDING đã quá hạn giữ chỗ (mặc định 15 phút) và trả lại nguyên liệu.
+   * Chạy định kỳ bởi OrderExpiryService.
+   */
+  async expireStalePendingOrders(minutes: number): Promise<number> {
+    if (!Number.isFinite(minutes) || minutes <= 0) return 0;
+
+    // Mốc hạn phải tính bằng NOW() của PostgreSQL: các cột thời gian ở đây là
+    // `timestamp without time zone` lưu theo giờ của server DB, so với new Date() (UTC)
+    // của Node sẽ lệch múi giờ và không bao giờ khớp.
+    const staleSeconds = Math.round(minutes * 60);
+    const stale = await this.prisma.$queryRaw<
+      Array<{ id: number; order_code: string }>
+    >`
+      SELECT "id", "order_code"
+        FROM "orders"
+       WHERE "status" = 'PENDING'::"OrderStatus"
+         AND "created_at" < NOW() - (${staleSeconds}::int * INTERVAL '1 second')
+       ORDER BY "id"
+    `;
+
+    let cancelled = 0;
+    for (const row of stale) {
+      try {
+        await this.prisma.orders.update({
+          where: { id: row.id },
+          data: { status: 'CANCELLED' },
+        });
+        await this.inventory?.releaseForOrder(row.id);
+        cancelled += 1;
+      } catch (err) {
+        this.logger.warn(
+          `Không huỷ được đơn ${row.order_code}: ${(err as Error)?.message ?? String(err)}`,
+        );
+      }
+    }
+
+    if (cancelled > 0) {
+      this.logger.log(
+        `Đã huỷ ${cancelled} đơn PENDING quá ${minutes} phút và trả lại nguyên liệu`,
+      );
+    }
+    return cancelled;
   }
 
   async findByUser(userId: string): Promise<Order[]> {

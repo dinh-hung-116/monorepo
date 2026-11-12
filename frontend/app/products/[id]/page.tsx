@@ -5,7 +5,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { ApiError, getProduct, getToppings } from "@/lib/api";
+import {
+  ApiError,
+  getProduct,
+  getProductAvailability,
+  getToppings,
+} from "@/lib/api";
 import ProductOptions from "@/components/ProductOptions";
 import { useCart } from "@/context/CartContext";
 import {
@@ -14,7 +19,7 @@ import {
   type Size,
   type ToppingId,
 } from "@/lib/pricing";
-import type { Product, Topping } from "@/lib/types";
+import type { ApiItemAvailability, Product, Topping } from "@/lib/types";
 
 type State =
   | { kind: "loading" }
@@ -44,6 +49,10 @@ function ProductDetail() {
   const [toppings, setToppings] = useState<ToppingId[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [toppingsOptions, setToppingsOptions] = useState<Topping[]>([]);
+  // Số ly còn lại theo lựa chọn hiện tại; null = không lấy được thông tin tồn kho.
+  const [availability, setAvailability] = useState<ApiItemAvailability | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!validId) return;
@@ -61,6 +70,29 @@ function ProductDetail() {
         }),
       );
   }, [productId, validId]);
+
+  // Tồn kho phụ thuộc size + topping + số lượng đang chọn nên phải hỏi lại mỗi lần đổi.
+  useEffect(() => {
+    if (!validId) return;
+    let cancelled = false;
+    const toppingNames = toppings.map(
+      (idItem) => toppingsOptions.find((t) => t.id === idItem)?.name ?? idItem,
+    );
+    getProductAvailability(productId, {
+      size,
+      qty: quantity,
+      toppings: toppingNames,
+    })
+      .then((result) => {
+        if (!cancelled) setAvailability(result);
+      })
+      .catch(() => {
+        if (!cancelled) setAvailability(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, validId, size, quantity, toppings, toppingsOptions]);
 
   const back = (
     <Link
@@ -111,8 +143,13 @@ function ProductDetail() {
     quantity,
     toppingsOptions,
   );
+  const notEnoughStock =
+    availability !== null &&
+    availability.maxCups !== null &&
+    availability.maxCups < quantity;
 
   const handleAddToCart = () => {
+    if (notEnoughStock) return;
     const toppingNames = toppings.map(
       (idItem) => toppingsOptions.find((t) => t.id === idItem)?.name ?? idItem,
     );
@@ -153,6 +190,24 @@ function ProductDetail() {
             Giá gốc:{" "}
             <span className="font-semibold">{formatVnd(product.price)}</span>
           </p>
+          {availability && availability.maxCups !== null &&
+            (notEnoughStock ? (
+              <p
+                role="status"
+                className="mt-1 text-sm font-semibold text-red-700 dark:text-red-400"
+              >
+                {availability.maxCups <= 0
+                  ? "Tạm hết nguyên liệu cho lựa chọn này."
+                  : `Chỉ còn đủ ${availability.maxCups} ly với lựa chọn này — hãy giảm số lượng.`}
+              </p>
+            ) : (
+              <p
+                role="status"
+                className="mt-1 text-sm text-zinc-500 dark:text-zinc-400"
+              >
+                Còn khoảng {availability.maxCups} ly với lựa chọn này.
+              </p>
+            ))}
 
           <ProductOptions
             size={size}
@@ -195,9 +250,12 @@ function ProductDetail() {
           <button
             type="button"
             onClick={handleAddToCart}
-            className="mt-4 w-full rounded-xl bg-amber-800 px-4 py-3 text-sm font-bold text-white transition hover:bg-amber-900"
+            disabled={notEnoughStock}
+            className="mt-4 w-full rounded-xl bg-amber-800 px-4 py-3 text-sm font-bold text-white transition hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            + Thêm vào giỏ ({formatVnd(total)})
+            {notEnoughStock
+              ? "Tạm hết nguyên liệu"
+              : `+ Thêm vào giỏ (${formatVnd(total)})`}
           </button>
         </section>
       </div>

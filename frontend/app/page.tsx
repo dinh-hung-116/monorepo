@@ -4,22 +4,34 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { getProducts } from '@/lib/api';
+import { getAvailability, getProducts } from '@/lib/api';
 import { formatVnd } from '@/lib/pricing';
 import type { Product } from '@/lib/types';
 
 type State =
   | { kind: 'loading' }
   | { kind: 'error' }
-  | { kind: 'ready'; products: Product[] };
+  | {
+      kind: 'ready';
+      products: Product[];
+      /** Số ly còn bán được theo size M; undefined = không có dữ liệu tồn kho. */
+      cups: Map<number, number | null>;
+    };
 
 export default function MenuPage() {
   const [state, setState] = useState<State>({ kind: 'loading' });
 
   // Chỉ gọi setState khi có kết quả (không setState đồng bộ trong effect).
   const fetchMenu = useCallback(() => {
-    getProducts()
-      .then((products) => setState({ kind: 'ready', products }))
+    // Tồn kho là thông tin phụ: lỗi ở đây không được làm hỏng cả menu.
+    Promise.all([getProducts(), getAvailability().catch(() => null)])
+      .then(([products, availability]) => {
+        const cups = new Map<number, number | null>();
+        for (const item of availability?.products ?? []) {
+          cups.set(item.productId, item.cups.M);
+        }
+        setState({ kind: 'ready', products, cups });
+      })
       .catch(() => setState({ kind: 'error' }));
   }, []);
 
@@ -78,6 +90,7 @@ export default function MenuPage() {
                   <p className="text-xs text-zinc-500">{p.category}</p>
                   <h2 className="font-semibold group-hover:text-amber-800">{p.name}</h2>
                   <p className="mt-1 font-bold text-amber-800">{formatVnd(p.price)}</p>
+                  <AvailabilityNote cups={state.cups.get(p.id)} />
                 </div>
               </Link>
             </li>
@@ -89,6 +102,22 @@ export default function MenuPage() {
 }
 
 /** Khung chờ cùng bố cục với lưới thật để trang không bị nhảy khi tải xong. */
+function AvailabilityNote({ cups }: { cups: number | null | undefined }) {
+  if (cups === undefined || cups === null) return null;
+  if (cups <= 0) {
+    return (
+      <p className="mt-1 text-xs font-semibold text-red-700 dark:text-red-400">
+        Tạm hết nguyên liệu
+      </p>
+    );
+  }
+  return (
+    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+      Còn khoảng {cups} ly
+    </p>
+  );
+}
+
 function MenuSkeleton() {
   return (
     <ul aria-busy="true" aria-label="Đang tải menu" className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4" suppressHydrationWarning>

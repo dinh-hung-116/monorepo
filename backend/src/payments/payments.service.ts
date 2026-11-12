@@ -1,10 +1,13 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { InventoryService } from '../inventory/inventory.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {OrderStatus, Prisma} from "@prisma/client";
 
@@ -43,7 +46,12 @@ export type CancelPaymentResult = {
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(PaymentsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly inventory?: InventoryService,
+  ) {}
 
   /** Truy cập bảng payments qua Prisma (typed loosely để tương thích mock trong test). */
   private get paymentsRepo() {
@@ -210,6 +218,20 @@ export class PaymentsService {
     if (paid) {
       await this.awardLoyaltyPoints(order);
       await this.completeSuccessfulPayment(orderId);
+    }
+
+    // Tồn kho: thanh toán xong thì trừ thật khỏi kho, thất bại thì trả lại phần đã giữ chỗ
+    // để giỏ hàng/nguyên liệu vẫn dùng được cho lần thanh toán sau.
+    try {
+      if (paid) {
+        await this.inventory?.consumeForOrder(orderId);
+      } else {
+        await this.inventory?.releaseForOrder(orderId);
+      }
+    } catch (err) {
+      this.logger.error(
+        `Không cập nhật được tồn kho cho đơn ${orderId}: ${(err as Error)?.message ?? String(err)}`,
+      );
     }
 
     return { order: updated, paid };

@@ -2,6 +2,7 @@
 import type { Product } from "./types";
 import type { ApiOrder } from "./types";
 import type { Topping } from "./types";
+import type { ApiAvailability, ApiItemAvailability } from "./types";
 
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
@@ -52,6 +53,26 @@ export const getProduct = (id: number) => get<Product>(`/products/${id}`);
 
 /** GET /toppings – danh sách topping đang bán. */
 export const getToppings = () => get<Topping[]>("/toppings");
+
+/** GET /inventory/availability – số ly còn bán được của từng món và từng topping. */
+export const getAvailability = () => get<ApiAvailability>("/inventory/availability");
+
+/** GET /inventory/products/:id/availability – kiểm tra một lựa chọn size + topping + số lượng. */
+export const getProductAvailability = (
+  id: number,
+  options: { size: string; qty: number; toppings: string[] },
+) => {
+  const params = new URLSearchParams({
+    size: options.size,
+    qty: String(options.qty),
+  });
+  if (options.toppings.length > 0) {
+    params.set("toppings", options.toppings.join(","));
+  }
+  return get<ApiItemAvailability>(
+    `/inventory/products/${id}/availability?${params.toString()}`,
+  );
+};
 
 export const validatePromotion = async (code: string, subtotal: number) => {
   const res = await fetch(`${API_URL}/orders/validate-promotion`, {

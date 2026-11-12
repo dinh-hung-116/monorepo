@@ -247,6 +247,28 @@ async function main() {
       }
     }
 
+    // Công thức topping: topping nào có nguyên liệu cùng tên trong seed thì bị trừ kho theo topping.
+    // Topping không khai báo ở đây coi như không giới hạn bởi nguyên liệu (maxCups = null).
+    const toppingRecipeData: Record<string, Array<[string, number]>> = {
+      'Trân châu đen': [['Trân châu đen', 30]],
+    };
+    for (const [toppingName, toppingIngredients] of Object.entries(
+      toppingRecipeData,
+    )) {
+      const toppingId = toppings.get(toppingName);
+      if (!toppingId) continue;
+      await prisma.topping_ingredients.deleteMany({
+        where: { topping_id: toppingId },
+      });
+      await prisma.topping_ingredients.createMany({
+        data: toppingIngredients.map(([ingredientName, quantity]) => ({
+          topping_id: toppingId,
+          ingredient_id: ingredients.get(ingredientName)!,
+          quantity,
+        })),
+      });
+    }
+
     const customerId = users.get('customer@brewlite.test')!;
     const coffee = products.get('Cà phê sữa')!;
     const tea = products.get('Trà sữa trân châu')!;

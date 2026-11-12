@@ -84,6 +84,7 @@ model orders {
   payments              payments[]
   loyalty_transactions  loyaltytransactions[]
   promotion             promotions?            @relation(fields: [promotion_id], references: [id], onDelete: SetNull)
+  ingredient_reservations order_ingredient_reservations[]
 
   @@index([user_id])
   @@index([status])
@@ -111,13 +112,14 @@ model order_items {
 
 model toppings {
   id           Int      @id @default(autoincrement())
-  name         String   @db.VarChar(100)
+  name         String   @unique @db.VarChar(100)
   price        Decimal  @db.Decimal(12, 3)
   is_available Boolean  @default(true)
   created_at   DateTime @default(now()) @db.Timestamp(6)
   updated_at   DateTime @updatedAt @default(now()) @db.Timestamp(6)
 
   order_items order_item_toppings[]
+  ingredients topping_ingredients[]
 }
 
 model order_item_toppings {
@@ -137,6 +139,11 @@ model order_item_toppings {
 model recipes {
   id           Int      @id @default(autoincrement())
   product_id   Int      @unique
+  // Hệ số tiêu hao nguyên liệu theo size, nhân với recipe_ingredients.quantity (công thức chuẩn = size M).
+  // Ly lớn hơn dùng nhiều nguyên liệu hơn nhưng không tuyến tính theo giá, nên để riêng từng món.
+  size_factor_s Decimal @default(0.800) @db.Decimal(6, 3)
+  size_factor_m Decimal @default(1.000) @db.Decimal(6, 3)
+  size_factor_l Decimal @default(1.250) @db.Decimal(6, 3)
   created_at   DateTime @default(now()) @db.Timestamp(6)
   updated_at   DateTime @updatedAt @default(now()) @db.Timestamp(6)
 
@@ -150,10 +157,15 @@ model ingredients {
   unit        String   @db.VarChar(30)
   quantity    Decimal  @db.Decimal(12, 3)
   reserved    Decimal  @default(0) @db.Decimal(12, 3)
+  // Optimistic locking: tăng 1 mỗi lần sửa số lượng.
+  // Mọi UPDATE đều kèm "version" = giá trị đã đọc → ghi đè song song bị phát hiện và thử lại.
+  version     Int      @default(0)
   created_at  DateTime @default(now()) @db.Timestamp(6)
   updated_at  DateTime @updatedAt @default(now()) @db.Timestamp(6)
 
   recipes  recipe_ingredients[]
+  toppings topping_ingredients[]
+  reservations order_ingredient_reservations[]
 }
 
 model recipe_ingredients {
@@ -166,6 +178,38 @@ model recipe_ingredients {
   ingredient ingredients @relation(fields: [ingredient_id], references: [id], onDelete: Cascade)
 
   @@unique([recipe_id, ingredient_id])
+  @@index([ingredient_id])
+}
+
+// Công thức của topping: 1 phần topping tiêu hao bao nhiêu nguyên liệu (không phụ thuộc size ly).
+model topping_ingredients {
+  id            Int     @id @default(autoincrement())
+  topping_id    Int
+  ingredient_id Int
+  quantity      Decimal @db.Decimal(12, 3)
+
+  topping    toppings    @relation(fields: [topping_id], references: [id], onDelete: Cascade)
+  ingredient ingredients @relation(fields: [ingredient_id], references: [id], onDelete: Cascade)
+
+  @@unique([topping_id, ingredient_id])
+  @@index([ingredient_id])
+}
+
+// Nguyên liệu đã giữ cho một đơn: reserved tăng khi tạo đơn, quantity trừ khi thanh toán xong,
+// reserved trả lại khi thanh toán lỗi/huỷ. consumed_at / released_at để chạy lại nhiều lần vẫn đúng.
+model order_ingredient_reservations {
+  id            Int       @id @default(autoincrement())
+  order_id      Int
+  ingredient_id Int
+  quantity      Decimal   @db.Decimal(12, 3)
+  consumed_at   DateTime? @db.Timestamp(6)
+  released_at   DateTime? @db.Timestamp(6)
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+
+  order      orders      @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  ingredient ingredients @relation(fields: [ingredient_id], references: [id], onDelete: Restrict)
+
+  @@index([order_id])
   @@index([ingredient_id])
 }
 

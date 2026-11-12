@@ -56,4 +56,14 @@ export class OrdersController {
   async getOrderByCode(@Param('code') code: string): Promise<Order> {
     return this.ordersService.findByCode(code);
   }
+
+  /** Khách huỷ đơn của mình khi đang chờ thanh toán / thanh toán lỗi. */
+  @UseGuards(JwtAuthGuard)
+  @Post(':code/cancel')
+  async cancelOrder(
+    @Req() req: AuthenticatedRequest,
+    @Param('code') code: string,
+  ): Promise<Order> {
+    return this.ordersService.cancelOrder(code, req.user.userId);
+  }
 }

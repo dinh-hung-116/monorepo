@@ -110,3 +110,64 @@ npm test
 npm run lint
 npm run build
 ```
+Mau test idempotency key
+Bước 1: Lấy token mới
+Nếu email test123@example.com đã đăng ký rồi thì đăng nhập thay vì đăng ký:
+
+Method: POST
+URL: http://localhost:3001/auth/login
+Headers: Content-Type: application/json
+Body → raw → JSON:
+{
+  "email": "test123@example.com",
+  "password": "Test1234"
+}
+Hoặc nếu chưa đăng ký / quên mật khẩu, đăng ký email mới:
+
+Method: POST
+URL: http://localhost:3001/auth/register
+Body:
+{
+  "email": "test456@example.com",
+  "password": "Test1234",
+  "name": "Test User"
+}
+→ Send → trong response tìm "accessToken" → copy toàn bộ chuỗi (rất dài, bắt đầu bằng eyJ...).
+
+Bước 2: Tạo đơn hàng
+Method: POST
+URL: http://localhost:3001/orders
+Headers:
+Content-Type: application/json
+Authorization: Bearer + dán token vào (chú ý có dấu cách sau Bearer)
+Body:
+{
+  "items": [
+    {
+      "productId": "1",
+      "productName": "Cà phê đen",
+      "size": "M",
+      "toppings": [],
+      "qty": 1,
+      "unitPrice": 30000
+    }
+  ]
+}
+→ Send → copy orderCode trong response (dạng #1186).
+
+Bước 3: Gọi payment 2 lần cùng key
+Method: POST
+URL: http://localhost:3001/api/payment/create/%23 + số đơn. Ví dụ orderCode là #1186 → URL là:
+http://localhost:3001/api/payment/create/%231186
+Headers:
+Authorization: Bearer + token
+Idempotency-Key: test-key-001
+Body: None
+→ Send, sau đó Send lần 2 (click nút Send lại, hoặc duplicate request).
+
+Cả 2 lần phải trả 201 + paymentUrl.
+
+Bước 4: Kiểm tra DB
+cd C:\monorepo\backend
+npx prisma studio
+Mở http://localhost:5555 → bảng payments → filter idempotencyKey = test-key-001 → phải thấy đúng 1 row.

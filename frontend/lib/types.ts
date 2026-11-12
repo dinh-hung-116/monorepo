@@ -48,3 +48,49 @@ export interface ApiOrder {
   items: ApiOrderItem[];
   createdAt: string;
 }
+
+/** Lượng tồn của một nguyên liệu (GET /inventory/availability). */
+export interface ApiIngredientStock {
+  id: number;
+  name: string;
+  unit: string;
+  onHand: number;
+  reserved: number;
+  available: number;
+}
+
+export type ApiSize = 'S' | 'M' | 'L';
+
+/** Số ly còn bán được của một món (null = món chưa có công thức nên không giới hạn). */
+export interface ApiProductAvailability {
+  productId: number;
+  productName: string;
+  cups: Record<ApiSize, number | null>;
+  limitingIngredient: Record<ApiSize, string | null>;
+}
+
+export interface ApiToppingAvailability {
+  toppingId: number;
+  name: string;
+  maxPortions: number | null;
+  limitingIngredient: string | null;
+}
+
+export interface ApiAvailability {
+  ingredients: ApiIngredientStock[];
+  products: ApiProductAvailability[];
+  toppings: ApiToppingAvailability[];
+}
+
+/** Kết quả kiểm tra một lựa chọn cụ thể (size + topping + số lượng). */
+export interface ApiItemAvailability {
+  available: boolean;
+  maxCups: number | null;
+  limitingIngredient: string | null;
+  shortage: {
+    ingredientId: number;
+    name: string;
+    unit: string;
+    quantity: number;
+  } | null;
+}
