@@ -93,6 +93,15 @@ export class PaymentsService {
       throw new NotFoundException('Order not found');
     }
 
+    if (
+        order.status !== OrderStatus.PENDING &&
+        order.status !== OrderStatus.PAYMENT_FAILED
+    ) {
+      throw new BadRequestException(
+          `Cannot process payment for an order with status: ${order.status}`,
+      );
+    }
+
     if (order.status === OrderStatus.PAYMENT_FAILED) {
       await this.prisma.orders.update({
         where: { id: order.id },

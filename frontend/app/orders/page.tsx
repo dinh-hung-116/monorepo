@@ -17,7 +17,7 @@ const statusStyles: Record<string, string> = {
   CANCELLED: "border-zinc-200 bg-zinc-100 text-zinc-700",
 };
 const statusLabels: Record<string, string> = {
-  PENDING: "Đang xử lý",
+  PENDING: "Đang chờ thanh toán",
   PAID: "Đã thanh toán",
   PAYMENT_FAILED: "Thanh toán thất bại",
   CANCELLED: "Đã hủy",
