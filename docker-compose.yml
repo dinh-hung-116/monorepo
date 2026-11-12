@@ -26,6 +26,8 @@ services:
   backend:
     build:
       context: ./backend
+    env_file:
+      - ./backend/.env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-brewlite}:${POSTGRES_PASSWORD:-brewlite}@db:5432/${POSTGRES_DB:-brewlite_db}
       PORT: 3001
