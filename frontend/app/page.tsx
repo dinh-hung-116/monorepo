@@ -28,7 +28,9 @@ export default function MenuPage() {
       .then(([products, availability]) => {
         const cups = new Map<number, number | null>();
         for (const item of availability?.products ?? []) {
-          cups.set(item.productId, item.cups.M);
+          // Card hiển thị giá gốc = giá size S và trang chi tiết mặc định chọn size S,
+          // nên số ly trên card phải là của size S (size M/L tốn nhiều nguyên liệu hơn).
+          cups.set(item.productId, item.cups.S);
         }
         setState({ kind: 'ready', products, cups });
       })
@@ -113,7 +115,7 @@ function AvailabilityNote({ cups }: { cups: number | null | undefined }) {
   }
   return (
     <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-      Còn khoảng {cups} ly
+      Còn khoảng {cups} ly (size S)
     </p>
   );
 }
