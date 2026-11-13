@@ -1,0 +1,390 @@
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: brewlite-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+
+  # =====================================
+  # 1. QUALITY GATE
+  # =====================================
+  quality:
+    name: Lint, Test, Build
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        app: [backend, frontend]
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Test
+        run: npm run test --if-present
+
+      - name: Build
+        run: npm run build
+
+
+  # =====================================
+  # 2. BUILD DOCKER IMAGES
+  # =====================================
+  docker:
+    name: Build Docker Images
+    needs: quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Backend Image
+        run: |
+          docker build \
+            -t brewlite-backend:${{ github.sha }} \
+            ./backend
+
+      - name: Build Frontend Image
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL=http://localhost:3001 \
+            -t brewlite-frontend:${{ github.sha }} \
+            ./frontend
+
+      - name: Verify Images
+        run: docker image ls
+
+      - name: Save Docker Images
+        run: |
+          docker save \
+            brewlite-backend:${{ github.sha }} \
+            brewlite-frontend:${{ github.sha }} \
+            -o images.tar
+
+      - name: Upload Docker Images
+        uses: actions/upload-artifact@v4
+        with:
+          name: brewlite-images
+          path: images.tar
+          retention-days: 1
+
+
+  # =====================================
+  # 3. LOCAL INTEGRATION TEST
+  # =====================================
+  integration:
+    name: Integration Test
+    needs: docker
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+      BACKEND_IMAGE: brewlite-backend
+      FRONTEND_IMAGE: brewlite-frontend
+      POSTGRES_USER: brewlite
+      POSTGRES_PASSWORD: brewlite_test_password
+      POSTGRES_DB: brewlite_db
+      JWT_SECRET: ci_test_secret_only
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Docker Images
+        uses: actions/download-artifact@v4
+        with:
+          name: brewlite-images
+
+      - name: Load Docker Images
+        run: docker load -i images.tar
+
+      - name: Prepare Backend Environment
+        run: |
+          if [ -f backend/.env.example ]; then
+            cp backend/.env.example backend/.env
+          else
+            touch backend/.env
+          fi
+
+      - name: Start Services
+        run: docker compose up -d
+
+      - name: Wait for Database
+        run: |
+          for i in $(seq 1 30); do
+            if docker compose exec -T db \
+              pg_isready -U brewlite -d brewlite_db; then
+              echo "Database ready"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Database failed to start"
+          exit 1
+
+      - name: Run Database Migration
+        run: |
+          docker compose run --rm backend \
+            npm run db:migrate --if-present
+
+      - name: Smoke Test
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3001/health \
+              && curl -fsS http://localhost:3000/; then
+              echo "Smoke tests passed"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Smoke tests failed"
+          exit 1
+
+      - name: Show Logs on Failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+
+  # =====================================
+  # 4. PUBLISH TO GHCR
+  # =====================================
+  publish:
+    name: Publish Docker Images
+    needs: integration
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download Docker Images
+        uses: actions/download-artifact@v4
+        with:
+          name: brewlite-images
+
+      - name: Load Docker Images
+        run: docker load -i images.tar
+
+      - name: Set Image Prefix
+        run: |
+          echo "IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag Backend
+        run: |
+          docker tag \
+            brewlite-backend:${{ github.sha }} \
+            $IMAGE_PREFIX-backend:${{ github.sha }}
+
+      - name: Tag Frontend
+        run: |
+          docker tag \
+            brewlite-frontend:${{ github.sha }} \
+            $IMAGE_PREFIX-frontend:${{ github.sha }}
+
+      - name: Push Images
+        run: |
+          docker push $IMAGE_PREFIX-backend:${{ github.sha }}
+          docker push $IMAGE_PREFIX-frontend:${{ github.sha }}
+
+
+  # =====================================
+  # 5. VERIFY IMAGES FROM GHCR
+  # =====================================
+  verify-ghcr:
+    name: GHCR Smoke Test
+    needs: publish
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+      POSTGRES_USER: brewlite
+      POSTGRES_PASSWORD: brewlite_test_password
+      POSTGRES_DB: brewlite_db
+      JWT_SECRET: ci_test_secret_only
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Image Names
+        run: |
+          echo "BACKEND_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-backend" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-frontend" >> "$GITHUB_ENV"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare Backend Environment
+        run: |
+          if [ -f backend/.env.example ]; then
+            cp backend/.env.example backend/.env
+          else
+            touch backend/.env
+          fi
+
+      - name: Pull Published Images
+        run: |
+          docker pull "$BACKEND_IMAGE:$IMAGE_TAG"
+          docker pull "$FRONTEND_IMAGE:$IMAGE_TAG"
+
+      - name: Start Services
+        run: docker compose up -d
+
+      - name: Wait for Database
+        run: |
+          for i in $(seq 1 30); do
+            if docker compose exec -T db \
+              pg_isready -U brewlite -d brewlite_db; then
+              echo "Database ready"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          exit 1
+
+      - name: Run Database Migration
+        run: |
+          docker compose run --rm backend \
+            npm run db:migrate --if-present
+
+      - name: Smoke Test
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3001/health \
+              && curl -fsS http://localhost:3000/; then
+              echo "GHCR smoke tests passed"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "GHCR smoke tests failed"
+          exit 1
+
+      - name: Promote Images to Latest
+        run: |
+          docker tag "$BACKEND_IMAGE:$IMAGE_TAG" "$BACKEND_IMAGE:latest"
+          docker tag "$FRONTEND_IMAGE:$IMAGE_TAG" "$FRONTEND_IMAGE:latest"
+
+          docker push "$BACKEND_IMAGE:latest"
+          docker push "$FRONTEND_IMAGE:latest"
+
+      - name: Save Successful SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh variable set LAST_GOOD_SHA --body "${GITHUB_SHA}"
+
+      - name: Show Logs on Failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+
+  # =====================================
+  # 6. ROLLBACK GHCR TAGS ON FAILURE
+  # =====================================
+  rollback:
+    name: Rollback GHCR Images
+    needs: verify-ghcr
+    if: failure() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore Previous Images
+        env:
+          PREVIOUS_SHA: ${{ vars.LAST_GOOD_SHA }}
+        run: |
+          if [ -z "$PREVIOUS_SHA" ]; then
+            echo "No previous successful version exists."
+            echo "There is nothing to roll back to."
+            exit 1
+          fi
+
+          BACKEND="ghcr.io/${GITHUB_REPOSITORY,,}-backend"
+          FRONTEND="ghcr.io/${GITHUB_REPOSITORY,,}-frontend"
+
+          docker pull "$BACKEND:$PREVIOUS_SHA"
+          docker pull "$FRONTEND:$PREVIOUS_SHA"
+
+          docker tag "$BACKEND:$PREVIOUS_SHA" "$BACKEND:latest"
+          docker tag "$FRONTEND:$PREVIOUS_SHA" "$FRONTEND:latest"
+
+          docker push "$BACKEND:latest"
+          docker push "$FRONTEND:latest"
+
+          echo "GHCR tags restored to $PREVIOUS_SHA"
