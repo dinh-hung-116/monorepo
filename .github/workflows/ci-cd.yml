@@ -36,10 +36,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -68,7 +68,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build Backend Image
         run: |
@@ -94,7 +94,7 @@ jobs:
             -o images.tar
 
       - name: Upload Docker Images
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: brewlite-images
           path: images.tar
@@ -120,10 +120,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download Docker Images
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: brewlite-images
 
@@ -199,7 +199,7 @@ jobs:
 
     steps:
       - name: Download Docker Images
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: brewlite-images
 
@@ -259,7 +259,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set Image Names
         run: |
