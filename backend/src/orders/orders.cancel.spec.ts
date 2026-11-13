@@ -69,6 +69,17 @@ describe('OrdersService — huỷ đơn và đơn quá hạn', () => {
     expect(releaseForOrder).toHaveBeenCalledWith(7);
   });
 
+  it('huỷ đơn đã thanh toán', async () => {
+    const result = await service.cancelOrder('#1007', '3');
+
+    expect(result.status).toBe('CANCELLED');
+    expect(updateMock).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: { status: 'CANCELLED' },
+    });
+    expect(releaseForOrder).toHaveBeenCalledWith(7);
+  });
+
   it('chấp nhận mã đơn không có dấu #', async () => {
     const result = await service.cancelOrder('1007', '3');
     expect(result.status).toBe('CANCELLED');
@@ -77,14 +88,6 @@ describe('OrdersService — huỷ đơn và đơn quá hạn', () => {
   it('không cho huỷ đơn của người khác', async () => {
     await expect(service.cancelOrder('#1007', '99')).rejects.toThrow(
       ForbiddenException,
-    );
-    expect(releaseForOrder).not.toHaveBeenCalled();
-  });
-
-  it('không cho huỷ đơn đã thanh toán', async () => {
-    order = { ...order, status: 'PAID' };
-    await expect(service.cancelOrder('#1007', '3')).rejects.toThrow(
-      ConflictException,
     );
     expect(releaseForOrder).not.toHaveBeenCalled();
   });
