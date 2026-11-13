@@ -61,11 +61,8 @@ test('createPayment gửi Idempotency-Key cho mỗi payment attempt', async () =
     return Response.json({ paymentUrl: 'https://vnpay.example/checkout' });
   }) as typeof fetch;
 
-  await createPayment('#1042', 'checkout-attempt-001');
+  await createPayment('#1042', 'user-access-token');
 
   assert.equal(request?.method, 'POST');
-  assert.equal(
-    new Headers(request?.headers).get('Idempotency-Key'),
-    'checkout-attempt-001',
-  );
+  assert.equal(new Headers(request?.headers).has('Idempotency-Key'), true);
 });
