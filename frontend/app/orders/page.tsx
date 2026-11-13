@@ -33,7 +33,6 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (!isAuthenticated || !accessToken) {
-      setState("ready");
       return;
     }
     getMyOrders(accessToken)
@@ -65,12 +64,12 @@ export default function OrdersPage() {
           để xem lịch sử đơn hàng.
         </div>
       )}
-      {state === "loading" && (
+      {isAuthenticated && state === "loading" && (
         <p className="rounded-3xl border border-amber-300 p-6">
           Đang tải đơn hàng...
         </p>
       )}
-      {state === "error" && (
+      {isAuthenticated && state === "error" && (
         <p
           role="alert"
           className="rounded-3xl border border-red-300 bg-red-50 p-6 text-red-800"
@@ -78,7 +77,7 @@ export default function OrdersPage() {
           Không tải được lịch sử đơn hàng.
         </p>
       )}
-      {state === "ready" && isAuthenticated && orders.length === 0 && (
+      {isAuthenticated && state === "ready" && orders.length === 0 && (
         <p className="rounded-3xl border border-amber-300 p-6 text-center">
           Bạn chưa có đơn hàng nào.
         </p>

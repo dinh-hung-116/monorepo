@@ -111,7 +111,7 @@ export function buildCartItemId(
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const currentUserId = useCurrentUserId();
   const [items, setItems] = useState<CartItem[]>([]);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const isHydratedRef = useRef(false);
   const activeUserIdRef = useRef<string | null | undefined>(undefined);
 
   // Đồng bộ giỏ hàng theo từng tài khoản người dùng
@@ -131,18 +131,17 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       const saved = readStoredCart(currentUserId);
       setItems(saved);
     }
-
     activeUserIdRef.current = currentUserId;
-    setIsHydrated(true);
+    isHydratedRef.current = true;
   }, [currentUserId]);
 
   // Tự động lưu giỏ hàng vào localStorage theo userId
   useEffect(() => {
-    if (!isHydrated) return;
+    if (!isHydratedRef.current) return;
     if (activeUserIdRef.current === currentUserId) {
       writeStoredCart(currentUserId, items);
     }
-  }, [items, isHydrated, currentUserId]);
+  }, [items, currentUserId]);
 
   const addItem = useCallback((input: AddCartItemInput) => {
     const toppings = input.toppings ? [...input.toppings].sort() : [];

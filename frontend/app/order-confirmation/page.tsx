@@ -55,7 +55,9 @@ function OrderConfirmation() {
     if (!orderCode || !accessToken) return;
 
     let cancelled = false;
-    setLoading(true);
+    queueMicrotask(() => {
+      if (!cancelled) setLoading(true);
+    });
     getOrderByCode(orderCode, accessToken)
       .then((data) => {
         if (!cancelled) {

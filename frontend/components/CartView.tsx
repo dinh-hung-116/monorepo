@@ -72,8 +72,10 @@ export default function CartView() {
 
   // Xóa kết quả đơn hàng cũ và thông báo lỗi khi tài khoản thay đổi hoặc đăng xuất
   useEffect(() => {
-    setCreatedOrder(null);
-    setOrderError(null);
+    queueMicrotask(() => {
+      setCreatedOrder(null);
+      setOrderError(null);
+    });
   }, [user?.id, isAuthenticated]);
 
   const checkPromotion = useCallback(async () => {
@@ -104,14 +106,20 @@ export default function CartView() {
       setValidatingPromotion(false);
     }
   }, [promotionCode, totalAmount]);
+  const checkPromotionRef = useRef(checkPromotion);
+  const promotionCodeRef = useRef(promotionCode);
+  useEffect(() => {
+    checkPromotionRef.current = checkPromotion;
+    promotionCodeRef.current = promotionCode;
+  }, [checkPromotion, promotionCode]);
 
   const handlePromotionBlur = () => {
     void checkPromotion();
   };
 
   useEffect(() => {
-    if (promotionCode.trim()) {
-      void checkPromotion();
+    if (promotionCodeRef.current.trim()) {
+      queueMicrotask(() => void checkPromotionRef.current());
     }
   }, [totalAmount]);
 
