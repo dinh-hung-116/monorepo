@@ -24,6 +24,7 @@ services:
       retries: 20
 
   backend:
+    image: ${BACKEND_IMAGE}:${IMAGE_TAG}
     build:
       context: ./backend
     env_file:
@@ -40,6 +41,7 @@ services:
         condition: service_healthy
 
   frontend:
+    image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
     build:
       context: ./frontend
       args:
