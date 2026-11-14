@@ -196,7 +196,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-
+      actions: write
+      
     steps:
       - name: Download Docker Images
         uses: actions/download-artifact@v7
@@ -331,7 +332,7 @@ jobs:
 
       - name: Save Successful SHA
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_VARS_TOKEN }}
         run: |
           gh variable set LAST_GOOD_SHA --body "${GITHUB_SHA}"
 
