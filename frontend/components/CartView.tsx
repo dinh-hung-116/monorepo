@@ -1,29 +1,22 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL, useAuth } from "@/context/AuthContext";
 import { DrinkSize, useCart } from "@/context/CartContext";
 import {
+  createPayment,
+  getProducts,
+  getToppings,
+  validatePromotion,
+} from "@/lib/api";
+import {
   calculatePrice,
   formatVnd,
   SIZES,
-  TOPPINGS,
   type ToppingId,
 } from "@/lib/pricing";
-
-interface SampleDrink {
-  productId: string;
-  name: string;
-  basePrice: number;
-}
-
-const SAMPLE_DRINKS: SampleDrink[] = [
-  { productId: "1", name: "Cà phê đen", basePrice: 20000 },
-  { productId: "2", name: "Cà phê sữa", basePrice: 25000 },
-  { productId: "4", name: "Latte", basePrice: 35000 },
-  { productId: "6", name: "Trà đào", basePrice: 30000 },
-];
+import type { Product, Topping } from "@/lib/types";
 
 interface CreatedOrderInfo {
   id: string;
@@ -44,46 +37,117 @@ export default function CartView() {
   } = useCart();
   const { accessToken, isAuthenticated, user } = useAuth();
 
-  const [selectedDrink, setSelectedDrink] = useState<SampleDrink>(
-    SAMPLE_DRINKS[1]
-  );
+  const [products, setProducts] = useState<Product[]>([]);
+  const [toppings, setToppings] = useState<Topping[]>([]);
+  const [selectedDrink, setSelectedDrink] = useState<Product | null>(null);
   const [selectedSize, setSelectedSize] = useState<DrinkSize>("M");
   const [selectedToppings, setSelectedToppings] = useState<ToppingId[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [createdOrder, setCreatedOrder] = useState<CreatedOrderInfo | null>(
-    null
+    null,
   );
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [promotionCode, setPromotionCode] = useState("");
+  const [discountedTotal, setDiscountedTotal] = useState<number | null>(null);
+  const [validatedSubtotal, setValidatedSubtotal] = useState<number | null>(
+    null,
+  );
+  const [promotionDiscountLabel, setPromotionDiscountLabel] = useState<
+    string | null
+  >(null);
+  const [promotionError, setPromotionError] = useState<string | null>(null);
+  const [validatingPromotion, setValidatingPromotion] = useState(false);
+  const lastPromotionCheckRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([getProducts(), getToppings()])
+      .then(([loadedProducts, loadedToppings]) => {
+        setProducts(loadedProducts);
+        setToppings(loadedToppings);
+        setSelectedDrink(loadedProducts[0] ?? null);
+      })
+      .catch(() => setCatalogError("Không tải được menu từ máy chủ."));
+  }, []);
 
   // Xóa kết quả đơn hàng cũ và thông báo lỗi khi tài khoản thay đổi hoặc đăng xuất
   useEffect(() => {
-    setCreatedOrder(null);
-    setOrderError(null);
+    queueMicrotask(() => {
+      setCreatedOrder(null);
+      setOrderError(null);
+    });
   }, [user?.id, isAuthenticated]);
+
+  const checkPromotion = useCallback(async () => {
+    const code = promotionCode.trim();
+    const checkKey = `${code}:${totalAmount}`;
+    if (lastPromotionCheckRef.current === checkKey) return;
+    lastPromotionCheckRef.current = checkKey;
+    setPromotionError(null);
+    setDiscountedTotal(null);
+    setValidatedSubtotal(null);
+    setPromotionDiscountLabel(null);
+    if (!code) return;
+    setValidatingPromotion(true);
+    try {
+      const result = await validatePromotion(code, totalAmount);
+      setDiscountedTotal(result.total);
+      setValidatedSubtotal(totalAmount);
+      setPromotionDiscountLabel(
+        result.discountType === "PERCENTAGE"
+          ? `${result.discountValue}%`
+          : formatVnd(result.discountValue),
+      );
+    } catch (error) {
+      setPromotionError(
+        error instanceof Error ? error.message : "Mã khuyến mãi không hợp lệ.",
+      );
+    } finally {
+      setValidatingPromotion(false);
+    }
+  }, [promotionCode, totalAmount]);
+  const checkPromotionRef = useRef(checkPromotion);
+  const promotionCodeRef = useRef(promotionCode);
+  useEffect(() => {
+    checkPromotionRef.current = checkPromotion;
+    promotionCodeRef.current = promotionCode;
+  }, [checkPromotion, promotionCode]);
+
+  const handlePromotionBlur = () => {
+    void checkPromotion();
+  };
+
+  useEffect(() => {
+    if (promotionCodeRef.current.trim()) {
+      queueMicrotask(() => void checkPromotionRef.current());
+    }
+  }, [totalAmount]);
 
   const toggleTopping = (toppingId: ToppingId) => {
     setSelectedToppings((prev) =>
       prev.includes(toppingId)
         ? prev.filter((t) => t !== toppingId)
-        : [...prev, toppingId]
+        : [...prev, toppingId],
     );
   };
 
   const currentUnitPrice = calculatePrice(
-    selectedDrink.basePrice,
+    selectedDrink?.price ?? 0,
     selectedSize,
     selectedToppings,
-    1
+    1,
+    toppings,
   );
 
   const handleQuickAdd = () => {
+    if (!selectedDrink) return;
     setCreatedOrder(null);
     setOrderError(null);
     const toppingNames = selectedToppings.map(
-      (id) => TOPPINGS.find((t) => t.id === id)?.name ?? id
+      (id) => toppings.find((t) => t.id === id)?.name ?? id,
     );
     addItem({
-      productId: selectedDrink.productId,
+      productId: String(selectedDrink.id),
       name: selectedDrink.name,
       size: selectedSize,
       toppings: toppingNames,
@@ -92,7 +156,7 @@ export default function CartView() {
     });
   };
 
-  const handleCreateOrder = async () => {
+  const handlePayment = async () => {
     if (items.length === 0) return;
     if (!isAuthenticated || !accessToken) {
       setOrderError("Vui lòng đăng nhập trước khi đặt đơn hàng.");
@@ -119,27 +183,29 @@ export default function CartView() {
             qty: item.qty,
             unitPrice: item.unitPrice,
           })),
+          promotionCode: promotionCode.trim() || undefined,
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const order = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const msg = Array.isArray(data?.message)
-          ? data.message.join(", ")
-          : data?.message || "Không thể tạo đơn hàng";
+        const msg = Array.isArray(order?.message)
+          ? order.message.join(", ")
+          : order?.message || "Không thể tạo đơn hàng";
         throw new Error(msg);
       }
 
-      setCreatedOrder({
-        id: data.id,
-        orderCode: data.orderCode,
-        status: data.status,
-        total: data.total,
-      });
-      clearCart();
+      if (!accessToken) {
+        throw new Error("Vui lòng đăng nhập để thanh toán.");
+      }
+      const { paymentUrl } = await createPayment(order.orderCode, accessToken);
+      window.location.href = paymentUrl;
+      setSubmitting(true);
+      setOrderError(null);
+      setCreatedOrder(null);
     } catch (err) {
       setOrderError(
-        err instanceof Error ? err.message : "Lỗi kết nối tới máy chủ"
+        err instanceof Error ? err.message : "Lỗi kết nối tới máy chủ",
       );
     } finally {
       setSubmitting(false);
@@ -148,8 +214,8 @@ export default function CartView() {
 
   return (
     <div className="mx-auto grid max-w-4xl gap-6 px-4 py-6 md:grid-cols-12">
-      {/* Cột trái: Thêm nhanh món mẫu để kiểm thử giỏ hàng */}
-      <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm md:col-span-5">
+      {/* Cột trái: thêm nhanh món từ menu trong database */}
+      <section className="flex flex-col rounded-2xl border border-amber-200 bg-white p-5 shadow-sm md:col-span-5">
         <h2 className="text-lg font-bold text-zinc-900">
           Thêm đồ uống vào giỏ
         </h2>
@@ -163,11 +229,11 @@ export default function CartView() {
               Đồ uống
             </label>
             <div className="mt-1.5 grid grid-cols-2 gap-2">
-              {SAMPLE_DRINKS.map((drink) => {
-                const active = drink.productId === selectedDrink.productId;
+              {products.map((drink) => {
+                const active = drink.id === selectedDrink?.id;
                 return (
                   <button
-                    key={drink.productId}
+                    key={drink.id}
                     type="button"
                     onClick={() => setSelectedDrink(drink)}
                     className={`rounded-xl border p-2.5 text-left text-sm transition ${
@@ -178,7 +244,7 @@ export default function CartView() {
                   >
                     <div>{drink.name}</div>
                     <div className="text-xs text-zinc-500">
-                      {formatVnd(drink.basePrice)}
+                      {formatVnd(drink.price)}
                     </div>
                   </button>
                 );
@@ -216,7 +282,7 @@ export default function CartView() {
               Topping
             </label>
             <div className="mt-1.5 flex flex-wrap gap-2">
-              {TOPPINGS.map((topping) => {
+              {toppings.map((topping) => {
                 const active = selectedToppings.includes(topping.id);
                 return (
                   <button
@@ -241,16 +307,20 @@ export default function CartView() {
             <button
               type="button"
               onClick={handleQuickAdd}
+              disabled={!selectedDrink || Boolean(catalogError)}
               className="w-full rounded-xl bg-amber-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-900"
             >
               + Thêm vào giỏ ({formatVnd(currentUnitPrice)})
             </button>
           </div>
         </div>
+        {catalogError && (
+          <p className="mt-3 text-sm text-red-700">{catalogError}</p>
+        )}
       </section>
 
       {/* Cột phải: Danh sách giỏ hàng, chỉnh sửa số lượng, xóa và Đặt đơn */}
-      <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm md:col-span-7">
+      <section className="flex h-full flex-col rounded-2xl border border-amber-200 bg-white p-5 shadow-sm md:col-span-7">
         <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
           <div>
             <h1 className="text-xl font-bold text-zinc-900">
@@ -277,9 +347,7 @@ export default function CartView() {
             data-testid="order-success"
             className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900"
           >
-            <div className="text-base font-bold">
-              ✓ Đặt hàng thành công!
-            </div>
+            <div className="text-base font-bold">✓ Đặt hàng thành công!</div>
             <div className="mt-1 text-sm">
               Mã đơn: <strong>{createdOrder.orderCode}</strong> — Trạng thái:{" "}
               <span className="rounded bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-900">
@@ -376,12 +444,77 @@ export default function CartView() {
           </ul>
         )}
 
-        <div className="mt-4 border-t border-zinc-200 pt-4">
-          <div className="flex items-center justify-between text-base font-bold text-zinc-900">
-            <span>Tổng tiền:</span>
-            <span data-testid="cart-total-amount" className="text-xl text-amber-900">
-              {formatVnd(totalAmount)}
-            </span>
+        <div className="mt-auto border-t border-zinc-200 pt-4">
+          <div className="mt-4">
+            <label className="flex items-center gap-3 text-sm font-semibold text-zinc-700">
+              <span className="shrink-0">Mã khuyến mãi</span>
+              <span className="relative min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={promotionCode}
+                  onChange={(event) => {
+                    setPromotionCode(event.target.value);
+                    lastPromotionCheckRef.current = null;
+                    setDiscountedTotal(null);
+                    setValidatedSubtotal(null);
+                    setPromotionDiscountLabel(null);
+                    setPromotionError(null);
+                  }}
+                  onBlur={handlePromotionBlur}
+                  placeholder="Ví dụ: WELCOME10"
+                  maxLength={50}
+                  className="w-full rounded-xl border border-zinc-300 px-3 py-2 pr-9 font-normal uppercase outline-none transition focus:border-amber-700 focus:ring-2 focus:ring-amber-200"
+                />
+                {validatingPromotion && (
+                  <span
+                    aria-label="Đang kiểm tra mã khuyến mãi"
+                    className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin rounded-full border-2 border-amber-200 border-t-amber-800"
+                  />
+                )}
+              </span>
+            </label>
+            {promotionError && (
+              <p role="alert" className="mt-1 text-xs text-red-700">
+                {promotionError}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4 rounded-xl bg-zinc-50 p-3 text-sm">
+            <div className="flex items-center justify-between text-zinc-600">
+              <span>Tạm tính</span>
+              <span>{formatVnd(totalAmount)}</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-emerald-700">
+              <span>
+                Giảm giá
+                {validatedSubtotal === totalAmount && promotionDiscountLabel ? (
+                  <span className="ml-1 text-xs font-medium">
+                    ({promotionDiscountLabel})
+                  </span>
+                ) : null}
+              </span>
+              <span>
+                {formatVnd(
+                  validatedSubtotal === totalAmount && discountedTotal !== null
+                    ? totalAmount - discountedTotal
+                    : 0,
+                )}
+              </span>
+            </div>
+            <div className="mt-3 flex items-center justify-between border-t border-zinc-200 pt-3 text-base font-bold text-zinc-900">
+              <span>Tổng tiền</span>
+              <span
+                data-testid="cart-total-amount"
+                className="text-xl text-amber-900"
+              >
+                {formatVnd(
+                  validatedSubtotal === totalAmount
+                    ? discountedTotal
+                    : totalAmount,
+                )}
+              </span>
+            </div>
           </div>
 
           {!isAuthenticated && (
@@ -402,12 +535,10 @@ export default function CartView() {
           <button
             type="button"
             disabled={items.length === 0 || submitting}
-            onClick={handleCreateOrder}
+            onClick={handlePayment}
             className="mt-4 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {submitting
-              ? "Đang tạo đơn hàng..."
-              : `Đặt đơn hàng (${formatVnd(totalAmount)})`}
+            {submitting ? "Đang chuyển tới cổng thanh toán" : "Thanh toán"}
           </button>
         </div>
       </section>

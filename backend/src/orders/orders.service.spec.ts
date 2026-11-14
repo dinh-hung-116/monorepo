@@ -1,6 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { InventoryService } from '../inventory/inventory.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { OrdersService } from './orders.service.js';
 
@@ -45,17 +46,15 @@ describe('OrdersService (Task 6.2)', () => {
           user_id: number | null;
           status: string;
           total_price: number;
-          customer_name: string | null;
-          customer_phone: string | null;
           items: {
             create: Array<{
-              product_id: string;
+              product_id: number | null;
               product_name: string;
               size: string;
-              toppings: string[];
               price: number;
               quantity: number;
               subtotal: number;
+              item_toppings?: { create: Array<{ topping_name: string }> };
             }>;
           };
         };
@@ -67,10 +66,6 @@ describe('OrdersService (Task 6.2)', () => {
           user_id: data.user_id,
           status: data.status,
           total_price: new Prisma.Decimal(data.total_price),
-          customer_name: data.customer_name,
-          customer_phone: data.customer_phone,
-          address: null,
-          note: null,
           created_at: now,
           updated_at: now,
           items: data.items.create.map((it, idx) => ({
@@ -79,10 +74,12 @@ describe('OrdersService (Task 6.2)', () => {
             product_id: it.product_id,
             product_name: it.product_name,
             size: it.size,
-            toppings: it.toppings,
             price: new Prisma.Decimal(it.price),
             quantity: it.quantity,
             subtotal: new Prisma.Decimal(it.subtotal),
+            item_toppings: (it.item_toppings?.create ?? []).map((t) => ({
+              topping_name: t.topping_name,
+            })),
           })),
         };
       },
@@ -99,8 +96,6 @@ describe('OrdersService (Task 6.2)', () => {
           unitPrice: 37000,
         },
       ],
-      customerName: 'Tùng',
-      customerPhone: '0987654321',
     });
 
     expect(res.status).toBe('PENDING');
@@ -108,6 +103,57 @@ describe('OrdersService (Task 6.2)', () => {
     expect(res.total).toBe(74000);
     expect(res.items).toHaveLength(1);
     expect(res.items[0].lineTotal).toBe(74000);
-    expect(res.customerName).toBe('Tùng');
+    // Topping lấy từ bảng order_item_toppings của schema mới
+    expect(res.items[0].toppings).toEqual(['Trân châu']);
+    // Schema mới đã bỏ customer_name/address/note khỏi bảng orders
+    expect(res.customerName).toBeNull();
+  });
+
+  it('không tạo đơn khi tồn kho không đủ (409)', async () => {
+    const assertPlanAvailable = vi
+      .fn()
+      .mockRejectedValue(new ConflictException('Không đủ nguyên liệu'));
+    const inventoryMock = {
+      planFor: vi.fn().mockResolvedValue([
+        {
+          ingredientId: 1,
+          name: 'Cà phê rang xay',
+          unit: 'g',
+          quantity: 18,
+        },
+      ]),
+      assertPlanAvailable,
+      reserveInTransaction: vi.fn(),
+    } as unknown as InventoryService;
+
+    const prismaMock = {
+      users: { findUnique: vi.fn().mockResolvedValue({ id: 1 }) },
+      orders: {
+        count: countMock,
+        create: createMock,
+        findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+    } as unknown as PrismaService;
+
+    const service = new OrdersService(prismaMock, inventoryMock);
+
+    await expect(
+      service.createOrder('1', {
+        items: [
+          {
+            productId: '2',
+            productName: 'Cà phê sữa',
+            size: 'M',
+            toppings: [],
+            qty: 1,
+            unitPrice: 30000,
+          },
+        ],
+      }),
+    ).rejects.toThrow(ConflictException);
+
+    expect(assertPlanAvailable).toHaveBeenCalledTimes(1);
+    expect(createMock).not.toHaveBeenCalled();
   });
 });

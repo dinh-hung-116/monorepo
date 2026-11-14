@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from '../auth/jwt.strategy.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OrdersController } from './orders.controller.js';
 import { OrdersService } from './orders.service.js';
+import {PaymentsService} from "../payments/payments.service.js";
 
 describe('OrdersController', () => {
   let ordersController: OrdersController;
@@ -77,6 +78,7 @@ describe('OrdersController', () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [OrdersController],
       providers: [
+        PaymentsService,
         OrdersService,
         { provide: PrismaService, useValue: prismaMock },
       ],

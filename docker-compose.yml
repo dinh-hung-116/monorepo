@@ -1,0 +1,57 @@
+# BrewLite: database + backend + frontend
+# Chạy: docker compose up -d --build
+# Seed dữ liệu mẫu: docker compose run --rm backend npm run db:seed
+
+name: brewlite-stack
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-brewlite}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-brewlite}
+      POSTGRES_DB: ${POSTGRES_DB:-brewlite_db}
+    # 5434 ở host để không đụng PostgreSQL Windows (5432) và container brewlite-db cũ (5433)
+    ports:
+      - "5434:5432"
+    volumes:
+      - db_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-brewlite} -d ${POSTGRES_DB:-brewlite_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    image: ${BACKEND_IMAGE}:${IMAGE_TAG}
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-brewlite}:${POSTGRES_PASSWORD:-brewlite}@db:5432/${POSTGRES_DB:-brewlite_db}
+      PORT: 3001
+      CORS_ORIGIN: http://localhost:3000
+      JWT_SECRET: ${JWT_SECRET:-brewlite_super_secret_jwt_key_2026}
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
+    # Volume riêng của stack này, tách hẳn volume brewlite_brewlite_postgres_data của container cũ
+    name: brewlite_stack_db_data

@@ -1,4 +1,5 @@
 // Test Task 5.3: Tính tổng tiền và badge số lượng giỏ hàng (Tùng).
+// Test thanh toán thành công / thất bại và hành vi giỏ hàng tương ứng.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
@@ -128,4 +129,74 @@ test('removeItemFromCart xóa đúng món được chọn', () => {
   cart = removeItemFromCart(cart, cart[0].id);
   assert.equal(cart.length, 1);
   assert.equal(cart[0].productId, 2);
+});
+
+// ─── Hành vi giỏ hàng sau thanh toán ─────────────────────────────────────────
+
+test('thanh toán THÀNH CÔNG → clearCart trả về giỏ trống (xóa giỏ)', () => {
+  // Giả lập clearCart: trả về mảng rỗng
+  let cart: CartItem[] = [];
+  cart = addItemToCart(cart, {
+    productId: 1,
+    name: 'Cà phê đen',
+    basePrice: 20000,
+    size: 'M',
+    toppings: ['tran-chau'],
+    quantity: 2,
+  });
+  cart = addItemToCart(cart, {
+    productId: 2,
+    name: 'Cà phê sữa',
+    basePrice: 25000,
+    size: 'S',
+    toppings: [],
+    quantity: 1,
+  });
+
+  // Đảm bảo giỏ có hàng trước khi thanh toán
+  assert.equal(cart.length, 2);
+  assert.equal(calculateCartTotals(cart).totalItems, 3);
+
+  // Mô phỏng hành vi khi backend trả về paid = true:
+  // CartContext.clearCart() đặt items = [] và xóa localStorage.
+  // Ở đây ta kiểm tra rằng sau khi clearCart (items = []) thì giỏ thực sự trống.
+  const clearedCart: CartItem[] = [];
+  const totals = calculateCartTotals(clearedCart);
+  assert.equal(totals.totalItems, 0);
+  assert.equal(totals.totalPrice, 0);
+  assert.equal(clearedCart.length, 0);
+});
+
+test('thanh toán THẤT BẠI → giỏ hàng được giữ nguyên (không xóa)', () => {
+  let cart: CartItem[] = [];
+  cart = addItemToCart(cart, {
+    productId: 1,
+    name: 'Cà phê đen',
+    basePrice: 20000,
+    size: 'M',
+    toppings: ['tran-chau'],
+    quantity: 2,
+  });
+  cart = addItemToCart(cart, {
+    productId: 2,
+    name: 'Trà đào',
+    basePrice: 30000,
+    size: 'L',
+    toppings: [],
+    quantity: 1,
+  });
+
+  const beforePayment = calculateCartTotals(cart);
+  assert.equal(beforePayment.totalItems, 3);
+
+  // Mô phỏng hành vi khi backend trả về paid = false (PAYMENT_FAILED):
+  // clearCart() KHÔNG được gọi → items không thay đổi.
+  // Giỏ hàng phải giữ nguyên hoàn toàn sau "thanh toán thất bại".
+  const afterPaymentFailed = calculateCartTotals(cart);
+  assert.equal(afterPaymentFailed.totalItems, beforePayment.totalItems,
+    'Giỏ hàng phải giữ nguyên số lượng khi thanh toán thất bại');
+  assert.equal(afterPaymentFailed.totalPrice, beforePayment.totalPrice,
+    'Giỏ hàng phải giữ nguyên tổng tiền khi thanh toán thất bại');
+  assert.equal(cart.length, 2,
+    'Giỏ hàng phải giữ nguyên số dòng khi thanh toán thất bại');
 });

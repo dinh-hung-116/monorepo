@@ -61,4 +61,8 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString({ message: 'Ghi chú phải là chuỗi ký tự' })
   note?: string;
+
+  @IsOptional()
+  @IsString({ message: 'Mã khuyến mãi phải là chuỗi ký tự' })
+  promotionCode?: string;
 }
