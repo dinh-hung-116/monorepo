@@ -70,6 +70,7 @@ describe('OrdersService — huỷ đơn và đơn quá hạn', () => {
   });
 
   it('huỷ đơn đã thanh toán', async () => {
+    order = { ...order, status: 'PAID' };
     const result = await service.cancelOrder('#1007', '3');
 
     expect(result.status).toBe('CANCELLED');
