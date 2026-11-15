@@ -49,6 +49,15 @@ export default function Header() {
             <span>Lịch sử đơn hàng</span>
           </Link>
 
+          {user?.role && ["STAFF", "ADMIN"].includes(user.role) && (
+            <Link
+              href="/staff"
+              className="relative inline-flex items-center gap-2 rounded-full bg-violet-100 px-3.5 py-1.5 text-violet-900 transition hover:bg-violet-200"
+            >
+              Quầy pha chế
+            </Link>
+          )}
+
           {isAuthenticated && user ? (
             <div className="flex items-center gap-2">
               <span className="hidden text-zinc-700 sm:inline">

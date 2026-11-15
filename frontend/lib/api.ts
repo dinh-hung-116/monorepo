@@ -214,3 +214,75 @@ export const getMyOrders = async (accessToken: string) => {
       : [],
   }));
 };
+
+/** Chuẩn hoá đơn từ backend (giá trị Decimal có thể về dạng chuỗi). */
+const normalizeOrder = (order: ApiOrder): ApiOrder => ({
+  ...order,
+  total: Number(order.total) || 0,
+  items: Array.isArray(order.items)
+    ? order.items.map((item) => ({
+        ...item,
+        unitPrice: Number(item.unitPrice) || 0,
+        qty: Number(item.qty) || 0,
+        lineTotal: Number(item.lineTotal) || 0,
+      }))
+    : [],
+});
+
+async function staffRequest<T>(
+  path: string,
+  accessToken: string,
+  init: RequestInit = {},
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      cache: "no-store",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  } catch {
+    throw new ApiError(0, "Không kết nối được máy chủ.");
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      message?: string | string[];
+    } | null;
+    const message = Array.isArray(body?.message)
+      ? body.message.join(", ")
+      : body?.message;
+    throw new ApiError(
+      res.status,
+      res.status === 401
+        ? "Phiên đăng nhập đã hết hạn."
+        : res.status === 403
+          ? "Chỉ tài khoản nhân viên mới dùng được trang này."
+          : (message ?? `Máy chủ báo lỗi ${res.status}.`),
+    );
+  }
+  return (await res.json()) as T;
+}
+
+/** GET /staff/orders – barista: đơn PAID, PREPARING, READY. */
+export const getStaffQueue = async (accessToken: string) =>
+  (await staffRequest<ApiOrder[]>("/staff/orders", accessToken)).map(
+    normalizeOrder,
+  );
+
+/** PATCH /orders/:code/status – barista chuyển đơn sang bước kế tiếp. */
+export const updateOrderStatus = async (
+  orderCode: string,
+  status: "PREPARING" | "READY" | "COMPLETED" | "CANCELLED",
+  accessToken: string,
+) =>
+  normalizeOrder(
+    await staffRequest<ApiOrder>(
+      `/orders/${encodeURIComponent(orderCode)}/status`,
+      accessToken,
+      { method: "PATCH", body: JSON.stringify({ status }) },
+    ),
+  );

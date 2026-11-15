@@ -19,6 +19,7 @@ import {
   OrderItem,
   OrderStatus,
 } from './entities/order.entity.js';
+import { assertTransition } from './order-state.js';
 
 export interface OrderItemRow {
   id?: number;
@@ -559,11 +560,8 @@ export class OrdersService {
       if (row.user_id === null || String(row.user_id) !== String(userId)) {
         throw new ForbiddenException('Bạn không có quyền huỷ đơn hàng này');
       }
-      if (row.status !== 'PENDING' && row.status !== 'PAYMENT_FAILED' && row.status !== 'PAID') {
-        throw new ConflictException(
-          `Không thể huỷ đơn ở trạng thái ${row.status}`,
-        );
-      }
+      // PREPARING trở đi (barista đã nhận) thì không huỷ được nữa.
+      assertTransition(row.status, 'CANCELLED');
 
       await this.prisma.orders.update({
         where: { id: row.id },
@@ -587,11 +585,7 @@ export class OrdersService {
     if (String(found.userId) !== String(userId)) {
       throw new ForbiddenException('Bạn không có quyền huỷ đơn hàng này');
     }
-    if (found.status !== 'PENDING' && found.status !== 'PAYMENT_FAILED') {
-      throw new ConflictException(
-        `Không thể huỷ đơn ở trạng thái ${found.status}`,
-      );
-    }
+    assertTransition(found.status, 'CANCELLED');
 
     const cancelled: Order = { ...found, status: 'CANCELLED' };
     this.fallbackOrders.set(cancelled.id, cancelled);
@@ -642,6 +636,53 @@ export class OrdersService {
       );
     }
     return cancelled;
+  }
+
+  /** Barista: đơn đang chờ quầy xử lý (PAID, PREPARING, READY), cũ nhất trước. */
+  async findStaffQueue(): Promise<Order[]> {
+    const rows = await this.prisma.orders.findMany({
+      where: { status: { in: ['PAID', 'PREPARING', 'READY'] } },
+      include: { items: { include: { item_toppings: true } } },
+      orderBy: { id: 'asc' },
+    });
+    return rows.map((row) =>
+      this.rowToOrder(row as unknown as OrderRowWithItems, ''),
+    );
+  }
+
+  /**
+   * Barista đổi trạng thái đơn. Kiểm tra bằng assertTransition, rồi UPDATE có điều kiện
+   * "status = trạng thái vừa đọc": 2 người bấm cùng lúc thì chỉ 1 người thành công.
+   */
+  async updateStatusByStaff(
+    orderCode: string,
+    to: OrderStatus,
+  ): Promise<Order> {
+    const normalizedCode = orderCode.startsWith('#')
+      ? orderCode
+      : `#${orderCode}`;
+    const row = await this.prisma.orders.findUnique({
+      where: { order_code: normalizedCode },
+    });
+    if (!row) {
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderCode}`);
+    }
+
+    assertTransition(row.status, to);
+
+    const { count } = await this.prisma.orders.updateMany({
+      where: { id: row.id, status: row.status },
+      data: { status: to },
+    });
+    if (count === 0) {
+      throw new ConflictException(
+        'Đơn vừa được người khác cập nhật, hãy tải lại danh sách',
+      );
+    }
+    if (to === 'CANCELLED') {
+      await this.inventory?.releaseForOrder(row.id);
+    }
+    return this.findByCode(normalizedCode);
   }
 
   async findByUser(userId: string): Promise<Order[]> {
