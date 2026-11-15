@@ -42,15 +42,6 @@ export class PaymentsController {
     return { paymentUrl };
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Post('/cancel/:orderCode')
-  async cancelPayment(
-    @Param('orderCode') orderCode: string,
-    @Req() req: Request & { user: AuthenticatedUser },
-  ) {
-    return this.paymentsService.cancelPayment(orderCode, req.user.userId);
-  }
-
   @Get('/return')
   async paymentReturn(@Req() req: Request, @Res() res: Response) {
     const params: Map<string, string> = new Map();

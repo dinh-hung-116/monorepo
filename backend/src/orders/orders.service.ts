@@ -39,6 +39,12 @@ export interface OrderRowWithItems {
   user_id: number | null;
   status: string;
   total_price: number | { toString(): string };
+  discount_amount?: number | { toString(): string } | null;
+  promotion?: {
+    promo_code: string | null;
+    discount_type: string;
+    discount_value: number | { toString(): string };
+  } | null;
   created_at: Date | string;
   updated_at?: Date | string;
   items: OrderItemRow[];
@@ -46,6 +52,7 @@ export interface OrderRowWithItems {
 
 type OrderItemsInclude = {
   items: { include: { item_toppings: true } };
+  promotion?: true;
 };
 
 interface OrdersDelegate {
@@ -249,7 +256,10 @@ export class OrdersService {
     const lastOrders = await this.ordersRepo
       .findMany({
         where: {} as { user_id: number },
-        include: { items: { include: { item_toppings: true } } },
+        include: {
+          items: { include: { item_toppings: true } },
+          promotion: true,
+        },
         orderBy: { id: 'desc' },
       })
       .catch(() => []);
@@ -281,7 +291,7 @@ export class OrdersService {
           const orderRows = await tx.$queryRawUnsafe(
             `INSERT INTO "orders" ("order_code", "user_id", "status", "total_price", "promotion_id", "discount_amount", "updated_at")
          VALUES ('tmp-' || gen_random_uuid()::text, $1, $2::"OrderStatus", $3, $4, $5, NOW())
-         RETURNING id, user_id, status, total_price, created_at, updated_at`,
+         RETURNING id, user_id, status, total_price, discount_amount, created_at, updated_at`,
             validUserId,
             'PENDING',
             total,
@@ -517,6 +527,12 @@ export class OrdersService {
       );
     }
     if (
+      promotion.usage_limit !== null &&
+      promotion.usage_count >= promotion.usage_limit
+    ) {
+      throw new ConflictException('Mã khuyến mãi đã hết lượt sử dụng');
+    }
+    if (
       promotion.min_order_value !== null &&
       subtotal < Number(promotion.min_order_value)
     ) {
@@ -692,7 +708,10 @@ export class OrdersService {
       if (parsedUserId !== null) {
         const rows = await this.ordersRepo.findMany({
           where: { user_id: parsedUserId },
-          include: { items: { include: { item_toppings: true } } },
+          include: {
+            items: { include: { item_toppings: true } },
+            promotion: true,
+          },
           orderBy: { id: 'desc' },
         });
         return rows.map((row: OrderRowWithItems) =>
@@ -718,7 +737,10 @@ export class OrdersService {
     try {
       const row = await this.ordersRepo.findUnique({
         where: { order_code: normalizedCode },
-        include: { items: { include: { item_toppings: true } } },
+        include: {
+          items: { include: { item_toppings: true } },
+          promotion: true,
+        },
       });
       if (!row) {
         throw new NotFoundException(`Không tìm thấy đơn hàng ${orderCode}`);
@@ -748,6 +770,12 @@ export class OrdersService {
       userId: row.user_id !== null ? String(row.user_id) : fallbackUserId,
       status: row.status as OrderStatus,
       total: Number(row.total_price),
+      promotionCode: row.promotion?.promo_code ?? null,
+      promotionValue: row.promotion
+        ? Number(row.promotion.discount_value)
+        : null,
+      promotionType: row.promotion?.discount_type ?? null,
+      discountAmount: Number(row.discount_amount ?? 0),
       customerName: null,
       customerPhone: null,
       address: null,
