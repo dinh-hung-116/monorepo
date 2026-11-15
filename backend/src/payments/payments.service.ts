@@ -9,6 +9,7 @@ import {
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { canTransition } from '../orders/order-state.js';
 import { Prisma } from '@prisma/client';
 import { OrderStatus } from '@prisma/client';
 
@@ -93,9 +94,10 @@ export class PaymentsService {
       throw new NotFoundException('Order not found');
     }
 
+    // Chỉ PENDING, hoặc PAYMENT_FAILED → PENDING (thử lại), mới được thanh toán.
     if (
         order.status !== OrderStatus.PENDING &&
-        order.status !== OrderStatus.PAYMENT_FAILED
+        !canTransition(order.status ?? '', OrderStatus.PENDING)
     ) {
       throw new BadRequestException(
           `Cannot process payment for an order with status: ${order.status}`,
@@ -206,16 +208,21 @@ export class PaymentsService {
     const paid =
       params.get('vnp_ResponseCode') === '00' &&
       params.get('vnp_TransactionStatus') === '00';
-    if (order.status === 'PAID' && !paid) {
-      throw new BadRequestException('Invalid payment state transition');
+    const target = paid ? 'PAID' : 'PAYMENT_FAILED';
+    // Đơn đã huỷ mà VNPay báo huỷ/lỗi: giữ nguyên CANCELLED, không hồi sinh đơn.
+    if (order.status === 'CANCELLED' && !paid) {
+      return { order, paid: false };
     }
-    if (order.status === 'CANCELLED' && paid) {
+    // Callback lặp lại cùng kết quả thì bỏ qua kiểm tra (idempotent);
+    // còn lại phải đúng máy trạng thái, ví dụ không hạ PAID xuống PAYMENT_FAILED
+    // và không kéo đơn PREPARING/READY về PAID.
+    if (order.status !== target && !canTransition(order.status ?? '', target)) {
       throw new BadRequestException('Invalid payment state transition');
     }
 
     const updated = (await this.prisma.orders.update({
       where: { id: orderId },
-      data: { status: paid ? 'PAID' : 'PAYMENT_FAILED' },
+      data: { status: target },
     })) as OrderRecord;
 
     // Cập nhật trạng thái payment record trong bảng payments (best-effort).

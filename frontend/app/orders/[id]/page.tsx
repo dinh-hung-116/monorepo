@@ -52,12 +52,17 @@ function OrderDetail() {
   useEffect(() => {
     if (!accessToken) return;
 
-    getOrderByCode(decodeURIComponent(id), accessToken)
-      .then((loadedOrder) => {
-        setOrder(loadedOrder);
-        setState("ready");
-      })
-      .catch(() => setState("error"));
+    const load = () =>
+      getOrderByCode(decodeURIComponent(id), accessToken)
+        .then((loadedOrder) => {
+          setOrder(loadedOrder);
+          setState("ready");
+        })
+        .catch(() => setState((prev) => (prev === "ready" ? prev : "error")));
+    load();
+    // Tải lại mỗi 5 giây để khách thấy barista đổi trạng thái (đang pha, sẵn sàng...).
+    const timer = window.setInterval(load, 5000);
+    return () => window.clearInterval(timer);
   }, [id, accessToken]);
 
   useEffect(() => {
@@ -178,6 +183,8 @@ function OrderDetail() {
           </span>
         </div>
 
+        <OrderProgress status={order.status} />
+
         <section className="border-b border-zinc-100 py-5">
           <h2 className="font-semibold">Món đã đặt</h2>
           <div className="mt-3 divide-y divide-zinc-100">
@@ -249,6 +256,40 @@ function OrderDetail() {
         )}
       </div>
     </main>
+  );
+}
+
+const PROGRESS_STEPS = [
+  { status: "PAID", label: "Đã thanh toán" },
+  { status: "PREPARING", label: "Đang pha" },
+  { status: "READY", label: "Sẵn sàng" },
+  { status: "COMPLETED", label: "Hoàn thành" },
+];
+
+/** Tiến trình pha chế sau khi đã thanh toán; ẩn khi đơn chưa thanh toán hoặc đã huỷ. */
+function OrderProgress({ status }: { status: string }) {
+  const current = PROGRESS_STEPS.findIndex((step) => step.status === status);
+  if (current < 0) return null;
+  return (
+    <section className="border-b border-zinc-100 py-5">
+      <ol className="grid grid-cols-4 gap-2 text-center text-xs font-semibold">
+        {PROGRESS_STEPS.map((step, index) => (
+          <li key={step.status}>
+            <div
+              className={`h-2 rounded-full ${index <= current ? "bg-amber-700" : "bg-zinc-200"}`}
+            />
+            <span className={`mt-2 block ${index <= current ? "text-amber-900" : "text-zinc-400"}`}>
+              {step.label}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {status === "READY" && (
+        <p role="status" className="mt-4 rounded-xl bg-sky-50 px-4 py-3 text-center font-semibold text-sky-900">
+          Đồ uống đã sẵn sàng, mời bạn tới quầy lấy nước.
+        </p>
+      )}
+    </section>
   );
 }
 

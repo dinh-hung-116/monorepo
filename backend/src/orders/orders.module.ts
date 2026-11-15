@@ -5,11 +5,12 @@ import { PrismaModule } from '../prisma/prisma.module.js';
 import { OrderExpiryService } from './order-expiry.service.js';
 import { OrdersController } from './orders.controller.js';
 import { OrdersService } from './orders.service.js';
+import { StaffOrdersController } from './staff-orders.controller.js';
 import {PaymentsModule} from "../payments/payments.module.js";
 
 @Module({
   imports: [PrismaModule, AuthModule, InventoryModule, PaymentsModule],
-  controllers: [OrdersController],
+  controllers: [OrdersController, StaffOrdersController],
   providers: [OrdersService, OrderExpiryService],
   exports: [OrdersService],
 })
