@@ -455,4 +455,25 @@ describe('PaymentsService.createPayment – Idempotency-Key (task b)', () => {
     // Không được gọi payments.create nếu order không tồn tại
     expect(paymentsCreateMock).not.toHaveBeenCalled();
   });
+
+  it.each(['PAID', 'PREPARING', 'READY', 'COMPLETED', 'CANCELLED'])(
+    'từ chối tạo payment cho đơn %s',
+    async (status) => {
+      ordersFindUniqueMock.mockResolvedValue({
+        ...fakeOrder,
+        status,
+      });
+
+      await expect(
+        service.createPayment(
+          '#1042',
+          '127.0.0.1',
+          'http://localhost:3000',
+          `key-${status}`,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(paymentsCreateMock).not.toHaveBeenCalled();
+    },
+  );
 });

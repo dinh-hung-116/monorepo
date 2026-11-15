@@ -633,6 +633,7 @@ export class OrdersService {
     let cancelled = 0;
     for (const row of stale) {
       try {
+        assertTransition('PENDING', 'CANCELLED');
         await this.prisma.orders.update({
           where: { id: row.id },
           data: { status: 'CANCELLED' },
