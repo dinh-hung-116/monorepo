@@ -27,6 +27,10 @@ export interface Order {
   userId: string;
   status: OrderStatus;
   total: number;
+  promotionCode?: string | null;
+  promotionType?: string | null;
+  promotionValue?: number | null;
+  discountAmount?: number;
   customerName?: string | null;
   customerPhone?: string | null;
   address?: string | null;

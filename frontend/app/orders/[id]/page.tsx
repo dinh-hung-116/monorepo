@@ -219,11 +219,41 @@ function OrderDetail() {
           </p>
         </section>
 
-        <div className="flex items-center justify-between pt-5">
-          <span className="text-zinc-600">Tổng cộng</span>
-          <strong className="text-xl text-amber-800">
-            {formatVnd(order.total)}
-          </strong>
+        <div className="mt-5 rounded-xl bg-zinc-50 p-3 text-sm">
+          <div className="flex items-center justify-between text-zinc-600">
+            <span>Tạm tính</span>
+            <span>
+              {formatVnd(
+                order.total + (order.discountAmount ?? 0),
+              )}
+            </span>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-emerald-700">
+            <span>
+              Giảm giá
+              {order.promotionCode && (
+                <span className="ml-1 text-xs font-medium">
+                  ({order.promotionCode}
+                  {order.promotionValue !== null &&
+                  order.promotionValue !== undefined
+                    ? ` · ${
+                        order.promotionType === "PERCENTAGE"
+                          ? `${order.promotionValue}%`
+                          : formatVnd(order.promotionValue)
+                      }`
+                    : ""}
+                  )
+                </span>
+              )}
+            </span>
+            <span>{formatVnd(order.discountAmount ?? 0)}</span>
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t border-zinc-200 pt-3 text-base font-bold text-zinc-900">
+            <span>Tổng tiền</span>
+            <span className="text-xl text-amber-900">
+              {formatVnd(order.total)}
+            </span>
+          </div>
         </div>
         {(canCancel || canRetry) && (
           <div className="mt-5 border-t border-zinc-100 pt-5">

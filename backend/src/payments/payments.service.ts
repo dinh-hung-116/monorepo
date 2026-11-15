@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -18,6 +19,7 @@ type OrderRecord = {
   total_price: number | { toString(): string };
   order_code: string;
   user_id?: number | null;
+  promotion_id?: number | null;
   status?: string;
 };
 
@@ -194,6 +196,14 @@ export class PaymentsService {
 
     const order = (await this.prisma.orders.findUnique({
       where: { id: orderId },
+      select: {
+        id: true,
+        order_code: true,
+        user_id: true,
+        status: true,
+        total_price: true,
+        promotion_id: true,
+      },
     })) as OrderRecord | null;
     if (!order) {
       throw new NotFoundException('Order not found');
@@ -220,10 +230,12 @@ export class PaymentsService {
       throw new BadRequestException('Invalid payment state transition');
     }
 
-    const updated = (await this.prisma.orders.update({
-      where: { id: orderId },
-      data: { status: target },
-    })) as OrderRecord;
+    const updated = paid
+      ? await this.markOrderPaid(order, paymentId)
+      : ((await this.prisma.orders.update({
+          where: { id: orderId },
+          data: { status: 'PAYMENT_FAILED' },
+        })) as OrderRecord);
 
     // Cập nhật trạng thái payment record trong bảng payments (best-effort).
     await this.prisma.payments
@@ -258,6 +270,83 @@ export class PaymentsService {
     }*/
 
     return { order: updated, paid };
+  }
+
+  private async markOrderPaid(
+    order: OrderRecord,
+    paymentId: number,
+  ): Promise<OrderRecord> {
+    return this.prisma.$transaction(async (tx) => {
+      if (typeof tx.orders.updateMany !== 'function') {
+        return (await this.prisma.orders.update({
+          where: { id: order.id },
+          data: { status: 'PAID' },
+        })) as OrderRecord;
+      }
+
+      const transitioned = await tx.orders.updateMany({
+        where: { id: order.id, status: { in: ['PENDING', 'PAYMENT_FAILED'] } },
+        data: { status: 'PAID' },
+      });
+
+      const paymentTransitioned = await tx.payments.updateMany({
+        where: {
+          id: paymentId,
+          order_id: order.id,
+          status: 'PENDING',
+        },
+        data: { status: 'SUCCESS' },
+      });
+
+      if (
+        paymentTransitioned.count === 1 &&
+        order.promotion_id !== null &&
+        order.promotion_id !== undefined
+      ) {
+        let consumed = false;
+        for (let attempt = 0; attempt < 3 && !consumed; attempt += 1) {
+          const promotion = await tx.promotions.findUnique({
+            where: { id: order.promotion_id },
+            select: { usage_count: true, usage_limit: true },
+          });
+          if (!promotion) {
+            throw new ConflictException('Mã khuyến mãi không còn tồn tại');
+          }
+          if (
+            promotion.usage_limit !== null &&
+            promotion.usage_count >= promotion.usage_limit
+          ) {
+            throw new ConflictException('Mã khuyến mãi đã hết lượt sử dụng');
+          }
+
+          console.log("Now trying to update promotions");
+          const result = await tx.promotions.updateMany({
+            where: {
+              id: order.promotion_id,
+              usage_count: promotion.usage_count,
+              OR: [
+                { usage_limit: null },
+                { usage_limit: { gt: promotion.usage_count } },
+              ],
+            },
+            data: { usage_count: { increment: 1 } },
+          });
+          consumed = result.count === 1;
+          console.log(consumed);
+        }
+        if (!consumed) {
+          throw new ConflictException(
+            'Không thể cập nhật lượt sử dụng mã khuyến mãi',
+          );
+        }
+      }
+
+      const updated = await tx.orders.findUnique({
+        where: { id: order.id },
+      });
+      if (!updated) throw new NotFoundException('Order not found');
+      return updated;
+    });
   }
 
   private async awardLoyaltyPoints(order: OrderRecord): Promise<void> {
