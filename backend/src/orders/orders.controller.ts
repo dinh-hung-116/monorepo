@@ -58,8 +58,11 @@ export class OrdersController {
 
   @UseGuards(JwtAuthGuard)
   @Get(':code')
-  async getOrderByCode(@Param('code') code: string): Promise<Order> {
-    return this.ordersService.findByCode(code);
+  async getOrderByCode(
+    @Req() req: AuthenticatedRequest,
+    @Param('code') code: string,
+  ): Promise<Order> {
+    return this.ordersService.findByCodeForUser(code, req.user.userId);
   }
 
   /** Khách huỷ đơn của mình khi đang chờ thanh toán / thanh toán lỗi. */

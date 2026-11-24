@@ -21,7 +21,7 @@ export class PaymentsController {
   @Post('/create/:orderId')
   async createPayment(
     @Param('orderId') orderId: string,
-    @Req() req: Request,
+    @Req() req: Request & { user: AuthenticatedUser },
     @Headers('idempotency-key') idempotencyKeyHeader?: string,
   ) {
     const ipAddress = this.getIpAddress(req);
@@ -34,6 +34,7 @@ export class PaymentsController {
 
     const { paymentUrl } = await this.paymentsService.createPayment(
       orderId,
+      req.user.userId,
       ipAddress,
       `${req.protocol}://${req.get('host')}/api/payment/return`,
       idempotencyKey,
