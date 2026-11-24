@@ -354,7 +354,27 @@ export class OrdersService {
             );
           }
 
-          return { ...insertedOrder, items: createdItems } as OrderRowWithItems;
+          let promotionData: {
+            promo_code: string | null;
+            discount_type: string;
+            discount_value: number;
+          } | null = null;
+
+          if (promotionId) {
+            const promoRows = await tx.$queryRawUnsafe(
+              `SELECT "promo_code", "discount_type", "discount_value" FROM "promotions" WHERE "id" = $1`,
+              promotionId,
+            );
+            if (promoRows && promoRows.length > 0) {
+              promotionData = promoRows[0];
+            }
+          }
+
+          return {
+            ...insertedOrder,
+            promotion: promotionData,
+            items: createdItems,
+          } as OrderRowWithItems;
         },
         { timeout: 15_000, maxWait: 5_000 },
       );
@@ -391,6 +411,7 @@ export class OrdersService {
       },
       include: {
         items: { include: { item_toppings: true } },
+        promotion: true,
       },
     });
 
