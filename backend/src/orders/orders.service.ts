@@ -763,6 +763,14 @@ export class OrdersService {
     return found;
   }
 
+  async findByCodeForUser(orderCode: string, userId: string): Promise<Order> {
+    const order = await this.findByCode(orderCode);
+    if (String(order.userId) !== String(userId)) {
+      throw new NotFoundException(`Không tìm thấy đơn hàng ${orderCode}`);
+    }
+    return order;
+  }
+
   private rowToOrder(row: OrderRowWithItems, fallbackUserId: string): Order {
     const orderId = `order-${1000 + row.id}`;
     return {

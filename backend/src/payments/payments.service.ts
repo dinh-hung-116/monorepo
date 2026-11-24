@@ -85,6 +85,7 @@ export class PaymentsService {
 
   async createPayment(
     orderId: string,
+    userId: string,
     ipAddress: string,
     returnUrl: string,
     idempotencyKey: string,
@@ -93,6 +94,14 @@ export class PaymentsService {
       where: { order_code: orderId },
     })) as OrderRecord | null;
     if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    const numericUserId = Number(userId);
+    if (
+      !Number.isSafeInteger(numericUserId) ||
+      numericUserId <= 0 ||
+      order.user_id !== numericUserId
+    ) {
       throw new NotFoundException('Order not found');
     }
 
