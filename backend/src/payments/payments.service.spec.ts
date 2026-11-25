@@ -322,6 +322,7 @@ describe('PaymentsService.createPayment – Idempotency-Key (task b)', () => {
   const fakeOrder = {
     id: 42,
     order_code: '#1042',
+    user_id: 1,
     total_price: 75000,
     status: 'PENDING',
   };
@@ -350,6 +351,7 @@ describe('PaymentsService.createPayment – Idempotency-Key (task b)', () => {
   it('request đầu tiên với key mới → tạo 1 bản ghi payments trong DB', async () => {
     const result = await service.createPayment(
       '#1042',
+      '1',
       '127.0.0.1',
       'http://localhost:3000/api/payment/return',
       'unique-key-001',
@@ -383,6 +385,7 @@ describe('PaymentsService.createPayment – Idempotency-Key (task b)', () => {
 
     const result = await service.createPayment(
       '#1042',
+      '1',
       '127.0.0.1',
       'http://localhost:3000/api/payment/return',
       'unique-key-001',
@@ -401,11 +404,11 @@ describe('PaymentsService.createPayment – Idempotency-Key (task b)', () => {
 
     // Request 1: chưa có record → tạo mới
     paymentsFindUniqueMock.mockResolvedValueOnce(null);
-    const r1 = await service.createPayment('#1042', '127.0.0.1', 'http://localhost:3000/api/payment/return', KEY);
+    const r1 = await service.createPayment('#1042', '1', '127.0.0.1', 'http://localhost:3000/api/payment/return', KEY);
 
     // Request 2: giờ đã có record → không tạo thêm
     paymentsFindUniqueMock.mockResolvedValueOnce({ id: 1, order_id: fakeOrder.id, idempotencyKey: KEY, status: 'PENDING' });
-    const r2 = await service.createPayment('#1042', '127.0.0.1', 'http://localhost:3000/api/payment/return', KEY);
+    const r2 = await service.createPayment('#1042', '1', '127.0.0.1', 'http://localhost:3000/api/payment/return', KEY);
 
     // Chỉ 1 lần INSERT dù gọi 2 lần
     expect(paymentsCreateMock).toHaveBeenCalledTimes(1);
@@ -436,8 +439,8 @@ describe('PaymentsService.createPayment – Idempotency-Key (task b)', () => {
     });
 
     const results = await Promise.all([
-      service.createPayment('#1042', '127.0.0.1', 'http://localhost:3000/api/payment/return', 'same-key'),
-      service.createPayment('#1042', '127.0.0.1', 'http://localhost:3000/api/payment/return', 'same-key'),
+      service.createPayment('#1042', '1', '127.0.0.1', 'http://localhost:3000/api/payment/return', 'same-key'),
+      service.createPayment('#1042', '1', '127.0.0.1', 'http://localhost:3000/api/payment/return', 'same-key'),
     ]);
 
     expect(createCalls).toBe(2);
@@ -449,7 +452,7 @@ describe('PaymentsService.createPayment – Idempotency-Key (task b)', () => {
     ordersFindUniqueMock.mockResolvedValue(null);
 
     await expect(
-      service.createPayment('#9999', '127.0.0.1', 'http://localhost:3000', 'some-key'),
+      service.createPayment('#9999', '1', '127.0.0.1', 'http://localhost:3000', 'some-key'),
     ).rejects.toThrow(NotFoundException);
 
     // Không được gọi payments.create nếu order không tồn tại
@@ -467,6 +470,7 @@ describe('PaymentsService.createPayment – Idempotency-Key (task b)', () => {
       await expect(
         service.createPayment(
           '#1042',
+          '1',
           '127.0.0.1',
           'http://localhost:3000',
           `key-${status}`,
